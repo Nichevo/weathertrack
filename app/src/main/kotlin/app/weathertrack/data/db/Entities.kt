@@ -1,0 +1,98 @@
+package app.weathertrack.data.db
+
+import androidx.room.Entity
+import androidx.room.Index
+import androidx.room.PrimaryKey
+
+/**
+ * Every HTTP response from a weather API, stored exactly as received.
+ * This is the source of truth: parsed tables can always be rebuilt from it.
+ */
+@Entity(
+    tableName = "raw_pull",
+    indices = [Index("place_id"), Index("fetched_at"), Index("source", "endpoint")],
+)
+data class RawPullEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** API provider, e.g. "open-meteo". */
+    val source: String,
+    /** Which API on that provider, e.g. "forecast", "geocoding". */
+    val endpoint: String,
+    @androidx.room.ColumnInfo(name = "place_id") val placeId: Long?,
+    val latitude: Double?,
+    val longitude: Double?,
+    val url: String,
+    /** When the request completed, epoch milliseconds UTC. */
+    @androidx.room.ColumnInfo(name = "fetched_at") val fetchedAt: Long,
+    @androidx.room.ColumnInfo(name = "http_status") val httpStatus: Int,
+    @androidx.room.ColumnInfo(name = "duration_ms") val durationMs: Long,
+    /** What triggered the pull: "app", "background", "manual". */
+    val trigger: String,
+    val body: String,
+)
+
+/** One hourly forecast value exactly as issued in a given pull. Key: (pull, valid time). */
+@Entity(
+    tableName = "forecast_hour",
+    primaryKeys = ["pull_id", "valid_time"],
+    indices = [Index("place_id", "valid_time"), Index("issued_at")],
+)
+data class ForecastHourEntity(
+    @androidx.room.ColumnInfo(name = "pull_id") val pullId: Long,
+    @androidx.room.ColumnInfo(name = "place_id") val placeId: Long,
+    /** When the forecast was fetched, epoch seconds UTC. */
+    @androidx.room.ColumnInfo(name = "issued_at") val issuedAt: Long,
+    /** Start of the forecast hour, epoch seconds UTC. */
+    @androidx.room.ColumnInfo(name = "valid_time") val validTime: Long,
+    /** Hours between issue and valid time (negative for past hours). */
+    @androidx.room.ColumnInfo(name = "lead_hours") val leadHours: Int,
+    val temperature: Double?,
+    @androidx.room.ColumnInfo(name = "apparent_temperature") val apparentTemperature: Double?,
+    @androidx.room.ColumnInfo(name = "precipitation_probability") val precipitationProbability: Double?,
+    val precipitation: Double?,
+    @androidx.room.ColumnInfo(name = "weather_code") val weatherCode: Int?,
+    @androidx.room.ColumnInfo(name = "wind_speed") val windSpeed: Double?,
+    @androidx.room.ColumnInfo(name = "wind_gusts") val windGusts: Double?,
+    @androidx.room.ColumnInfo(name = "wind_direction") val windDirection: Double?,
+    @androidx.room.ColumnInfo(name = "uv_index") val uvIndex: Double?,
+    @androidx.room.ColumnInfo(name = "cloud_cover") val cloudCover: Double?,
+    val humidity: Double?,
+)
+
+/** One daily forecast value exactly as issued in a given pull. */
+@Entity(
+    tableName = "forecast_day",
+    primaryKeys = ["pull_id", "date"],
+    indices = [Index("place_id", "date")],
+)
+data class ForecastDayEntity(
+    @androidx.room.ColumnInfo(name = "pull_id") val pullId: Long,
+    @androidx.room.ColumnInfo(name = "place_id") val placeId: Long,
+    @androidx.room.ColumnInfo(name = "issued_at") val issuedAt: Long,
+    /** Local date at the place, yyyy-MM-dd. */
+    val date: String,
+    @androidx.room.ColumnInfo(name = "lead_days") val leadDays: Int,
+    @androidx.room.ColumnInfo(name = "weather_code") val weatherCode: Int?,
+    @androidx.room.ColumnInfo(name = "temperature_max") val temperatureMax: Double?,
+    @androidx.room.ColumnInfo(name = "temperature_min") val temperatureMin: Double?,
+    @androidx.room.ColumnInfo(name = "precipitation_sum") val precipitationSum: Double?,
+    @androidx.room.ColumnInfo(name = "precipitation_probability_max") val precipitationProbabilityMax: Double?,
+    @androidx.room.ColumnInfo(name = "wind_gusts_max") val windGustsMax: Double?,
+    @androidx.room.ColumnInfo(name = "uv_index_max") val uvIndexMax: Double?,
+)
+
+@Entity(tableName = "place")
+data class PlaceEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val region: String?,
+    val country: String?,
+    @androidx.room.ColumnInfo(name = "country_code") val countryCode: String?,
+    val latitude: Double,
+    val longitude: Double,
+    val timezone: String?,
+    /** True for the single "My location" row, which is updated from the device location. */
+    @androidx.room.ColumnInfo(name = "is_device_location") val isDeviceLocation: Boolean = false,
+    @androidx.room.ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
+    @androidx.room.ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+)
