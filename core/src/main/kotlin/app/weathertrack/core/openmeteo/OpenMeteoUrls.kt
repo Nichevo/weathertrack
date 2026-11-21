@@ -5,6 +5,7 @@ import java.util.Locale
 /** Builds Open-Meteo request URLs. All times are requested as unix seconds. */
 object OpenMeteoUrls {
     const val FORECAST_BASE = "https://api.open-meteo.com/v1/forecast"
+    const val ARCHIVE_BASE = "https://archive-api.open-meteo.com/v1/archive"
     const val GEOCODING_BASE = "https://geocoding-api.open-meteo.com/v1/search"
 
     val HOURLY_VARS = listOf(
@@ -32,6 +33,20 @@ object OpenMeteoUrls {
             "&daily=${DAILY_VARS.joinToString(",")}" +
             "&forecast_days=$forecastDays&past_hours=1" +
             "&timezone=auto&timeformat=unixtime&wind_speed_unit=kmh"
+
+    val ARCHIVE_DAILY_VARS = listOf(
+        "temperature_2m_max", "temperature_2m_min", "temperature_2m_mean", "apparent_temperature_max",
+        "apparent_temperature_min", "precipitation_sum", "rain_sum", "precipitation_hours",
+        "wind_gusts_10m_max", "sunshine_duration", "weather_code",
+    )
+
+    /** Daily observed history (reanalysis) between two ISO dates, inclusive. Dates are ISO strings. */
+    fun archiveDaily(latitude: Double, longitude: Double, startDate: String, endDate: String): String =
+        ARCHIVE_BASE +
+            "?latitude=${coord(latitude)}&longitude=${coord(longitude)}" +
+            "&start_date=$startDate&end_date=$endDate" +
+            "&daily=${ARCHIVE_DAILY_VARS.joinToString(",")}" +
+            "&timezone=auto&wind_speed_unit=kmh"
 
     fun geocode(query: String, count: Int = 10): String =
         GEOCODING_BASE + "?name=" + java.net.URLEncoder.encode(query, "UTF-8") +

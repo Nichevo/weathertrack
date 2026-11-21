@@ -6,7 +6,10 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.weathertrack.WeatherApp
+import app.weathertrack.core.alerts.Trigger
+import app.weathertrack.core.alerts.TriggerCalculator
 import app.weathertrack.core.jacket.JacketCalculator
+import app.weathertrack.ui.Format
 import app.weathertrack.core.jacket.JacketResult
 import app.weathertrack.data.PlaceRepository
 import app.weathertrack.data.StoredForecast
@@ -24,6 +27,7 @@ data class HomeState(
     val stored: StoredForecast? = null,
     val windowHours: Int = 3,
     val jacket: JacketResult? = null,
+    val triggers: List<Trigger> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
 )
@@ -31,6 +35,7 @@ data class HomeState(
 class HomeViewModel(
     private val weather: WeatherRepository,
     private val placeRepo: PlaceRepository,
+    private val updateWidgets: suspend () -> Unit,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state
@@ -54,6 +59,7 @@ class HomeViewModel(
             val cached = weather.cachedForecast(place)
             _state.update { it.copy(place = place, stored = cached, error = null) }
             recompute()
+            updateWidgets() // the widget follows the selected place
             if (cached == null || System.currentTimeMillis() - cached.fetchedAtMs > 20 * 60_000) refresh("app")
         }
     }
@@ -79,10 +85,14 @@ class HomeViewModel(
 
     private fun recompute() {
         val s = _state.value
-        val f = s.stored?.forecast ?: return _state.update { it.copy(jacket = null) }
+        val f = s.stored?.forecast ?: return _state.update { it.copy(jacket = null, triggers = emptyList()) }
         val now = System.currentTimeMillis() / 1000
+        val zone = Format.zone(f.timezone)
         _state.update {
-            it.copy(jacket = JacketCalculator.evaluate(f.hourly, now, s.windowHours, f.quarterHourly))
+            it.copy(
+                jacket = JacketCalculator.evaluate(f.hourly, now, s.windowHours, f.quarterHourly),
+                triggers = TriggerCalculator.evaluate(f.hourly, f.quarterHourly, now) { t -> Format.time(t, zone) },
+            )
         }
     }
 
@@ -90,7 +100,7 @@ class HomeViewModel(
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as WeatherApp
-                HomeViewModel(app.container.weather, app.container.places)
+                HomeViewModel(app.container.weather, app.container.places, app.container.updateWidgets)
             }
         }
     }

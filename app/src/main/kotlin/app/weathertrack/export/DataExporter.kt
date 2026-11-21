@@ -15,6 +15,7 @@ class DataExporter(private val context: Context, private val db: AppDatabase) {
     enum class Table(val sqlName: String, val label: String) {
         FORECAST_HOUR("forecast_hour", "Hourly forecasts as issued"),
         FORECAST_DAY("forecast_day", "Daily forecasts as issued"),
+        OBSERVED_DAY("observed_day", "Observed daily history"),
         RAW_PULL("raw_pull", "Raw API responses (JSON)"),
         PLACE("place", "Places"),
     }

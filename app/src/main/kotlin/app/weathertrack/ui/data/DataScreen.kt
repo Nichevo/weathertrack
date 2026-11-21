@@ -45,6 +45,7 @@ fun DataScreen() {
     val first by db.rawPullDao().firstFetchedAt().collectAsState(initial = null)
     val hours by db.forecastDao().hourCount().collectAsState(initial = 0)
     val days by db.forecastDao().dayCount().collectAsState(initial = 0)
+    val observed by db.observedDayDao().count().collectAsState(initial = 0)
     var status by remember { mutableStateOf<String?>(null) }
     var pendingTable by remember { mutableStateOf<DataExporter.Table?>(null) }
 
@@ -76,6 +77,7 @@ fun DataScreen() {
                     Text("$pulls raw API responses (${Format.bytes(bytes)} of JSON)")
                     Text("$hours hourly forecast values as issued")
                     Text("$days daily forecast values as issued")
+                    Text("$observed observed history days")
                     first?.let { Text("Collecting since ${Format.ago(it)}") }
                 }
             }

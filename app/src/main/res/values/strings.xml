@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">WeatherTrack</string>
+    <string name="detail_widget_name">Weather detail</string>
+    <string name="detail_widget_description">Now, today in 2-hour steps, the next 3 days, UV, and jacket, hot, cold and rain alerts.</string>
 </resources>

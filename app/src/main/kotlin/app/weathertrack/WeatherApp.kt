@@ -1,6 +1,10 @@
 package app.weathertrack
 
 import android.app.Application
+import android.util.Log
+import androidx.glance.appwidget.updateAll
+import app.weathertrack.data.HistoryRepository
+import app.weathertrack.widget.DetailWidget
 import app.weathertrack.data.PlaceRepository
 import app.weathertrack.data.WeatherRepository
 import app.weathertrack.data.db.AppDatabase
@@ -12,8 +16,14 @@ import app.weathertrack.work.RefreshWorker
 class AppContainer(app: Application) {
     val database = AppDatabase.create(app)
     val http = HttpFetcher()
-    val weather = WeatherRepository(database, http)
+    /** Redraws home-screen widgets from stored data. Called after each stored forecast. */
+    val updateWidgets: suspend () -> Unit = {
+        runCatching { DetailWidget().updateAll(app) }
+            .onFailure { Log.w("WeatherApp", "Widget update failed", it) }
+    }
+    val weather = WeatherRepository(database, http, onForecastStored = updateWidgets)
     val places = PlaceRepository(app, database.placeDao())
+    val history = HistoryRepository(app, database, http)
     val exporter = DataExporter(app, database)
 }
 
