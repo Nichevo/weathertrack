@@ -74,7 +74,11 @@ interface PlaceDao {
     suspend fun delete(place: PlaceEntity)
 }
 
-data class ObservedRange(val days: Int, val first: String?, val last: String?)
+data class ObservedRange(
+    @androidx.room.ColumnInfo(name = "day_count") val days: Int,
+    @androidx.room.ColumnInfo(name = "first_date") val first: String?,
+    @androidx.room.ColumnInfo(name = "last_date") val last: String?,
+)
 
 @Dao
 interface ObservedDayDao {
@@ -88,10 +92,10 @@ interface ObservedDayDao {
     @Query("SELECT * FROM observed_day WHERE place_id = :placeId AND substr(date, 6, 2) = :month ORDER BY date")
     suspend fun forMonth(placeId: Long, month: String): List<ObservedDayEntity>
 
-    @Query("SELECT COUNT(*) AS days, MIN(date) AS first, MAX(date) AS last FROM observed_day WHERE place_id = :placeId")
+    @Query("SELECT COUNT(*) AS day_count, MIN(`date`) AS first_date, MAX(`date`) AS last_date FROM observed_day WHERE place_id = :placeId")
     fun observeRange(placeId: Long): Flow<ObservedRange>
 
-    @Query("SELECT COUNT(*) AS days, MIN(date) AS first, MAX(date) AS last FROM observed_day WHERE place_id = :placeId")
+    @Query("SELECT COUNT(*) AS day_count, MIN(`date`) AS first_date, MAX(`date`) AS last_date FROM observed_day WHERE place_id = :placeId")
     suspend fun range(placeId: Long): ObservedRange?
 
     @Query("SELECT COUNT(*) FROM observed_day")
