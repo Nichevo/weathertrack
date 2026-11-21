@@ -22,6 +22,7 @@ data class StoredForecast(val forecast: Forecast, val fetchedAtMs: Long, val pul
 class WeatherRepository(
     private val db: AppDatabase,
     private val http: HttpFetcher,
+    private val onForecastStored: suspend () -> Unit = {},
 ) {
     private val rawDao = db.rawPullDao()
     private val forecastDao = db.forecastDao()
@@ -104,6 +105,7 @@ class WeatherRepository(
             })
             id
         }
+        onForecastStored()
         return StoredForecast(forecast, result.fetchedAtMs, pullId)
     }
 

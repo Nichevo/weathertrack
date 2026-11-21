@@ -54,6 +54,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.weathertrack.core.alerts.Trigger
+import app.weathertrack.core.alerts.TriggerKind
 import app.weathertrack.core.jacket.JacketResult
 import app.weathertrack.core.jacket.Verdict
 import app.weathertrack.core.model.DayPoint
@@ -106,6 +108,9 @@ fun HomeScreen(vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory)) {
                         ) { Text("Next $h hours") }
                     }
                 }
+            }
+            if (state.triggers.isNotEmpty()) {
+                item { TriggerRow(state.triggers) }
             }
             item {
                 val jacket = state.jacket
@@ -206,6 +211,25 @@ private fun VerdictCard(j: JacketResult, zone: ZoneId) {
                     "gusts ${Format.kmh(j.maxGustKmh)} · feels ${Format.temp(j.minFeelsLike)} min",
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TriggerRow(triggers: List<Trigger>) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        triggers.forEach { t ->
+            val (bg, fg) = when (t.kind) {
+                TriggerKind.RAIN_SOON -> Color(0xFF1E5AA8) to Color.White
+                TriggerKind.TOO_HOT -> Color(0xFFFFDAD6) to Color(0xFF8C1D18)
+                TriggerKind.TOO_COLD -> ClearBlueContainer to OnClearBlueContainer
+            }
+            Box(
+                Modifier.clip(RoundedCornerShape(16.dp)).background(bg).padding(horizontal = 14.dp, vertical = 8.dp),
+            ) {
+                Text(t.text, color = fg, fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 }

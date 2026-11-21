@@ -86,6 +86,7 @@ dependencies {
     ksp(libs.room.compiler)
 
     implementation(libs.work.runtime.ktx)
+    implementation(libs.glance.appwidget)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)

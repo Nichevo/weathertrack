@@ -73,3 +73,27 @@ interface PlaceDao {
     @Delete
     suspend fun delete(place: PlaceEntity)
 }
+
+data class ObservedRange(val days: Int, val first: String?, val last: String?)
+
+@Dao
+interface ObservedDayDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(rows: List<ObservedDayEntity>)
+
+    @Query("SELECT MAX(date) FROM observed_day WHERE place_id = :placeId")
+    suspend fun lastDate(placeId: Long): String?
+
+    /** All years of one calendar month ("01".."12") for a place. */
+    @Query("SELECT * FROM observed_day WHERE place_id = :placeId AND substr(date, 6, 2) = :month ORDER BY date")
+    suspend fun forMonth(placeId: Long, month: String): List<ObservedDayEntity>
+
+    @Query("SELECT COUNT(*) AS days, MIN(date) AS first, MAX(date) AS last FROM observed_day WHERE place_id = :placeId")
+    fun observeRange(placeId: Long): Flow<ObservedRange>
+
+    @Query("SELECT COUNT(*) AS days, MIN(date) AS first, MAX(date) AS last FROM observed_day WHERE place_id = :placeId")
+    suspend fun range(placeId: Long): ObservedRange?
+
+    @Query("SELECT COUNT(*) FROM observed_day")
+    fun count(): Flow<Int>
+}

@@ -123,6 +123,48 @@ object OpenMeteoParser {
         )
     }
 
+    /** One archive day, values as returned. [date] is ISO yyyy-MM-dd. */
+    data class ArchiveDay(
+        val date: String,
+        val tempMax: Double?,
+        val tempMin: Double?,
+        val tempMean: Double?,
+        val feelsMax: Double?,
+        val feelsMin: Double?,
+        val precipitation: Double?,
+        val rain: Double?,
+        val precipitationHours: Double?,
+        val gustMax: Double?,
+        val sunshineSeconds: Double?,
+        val weatherCode: Int?,
+    ) {
+        val hasData: Boolean get() = tempMax != null || precipitation != null
+    }
+
+    /** Parses an archive response requested with ISO dates (no timeformat=unixtime). */
+    fun parseArchiveDaily(body: String): List<ArchiveDay> {
+        val root = json.parseToJsonElement(body).jsonObject
+        if ((root["error"] as? JsonPrimitive)?.contentOrNull == "true") throw ParseException(root.str("reason") ?: "API error")
+        val d = root.obj("daily") ?: return emptyList()
+        val times = (d["time"] as? JsonArray)?.map { (it as? JsonPrimitive)?.contentOrNull } ?: return emptyList()
+        val tmax = d.doubles("temperature_2m_max")
+        val tmin = d.doubles("temperature_2m_min")
+        val tmean = d.doubles("temperature_2m_mean")
+        val fmax = d.doubles("apparent_temperature_max")
+        val fmin = d.doubles("apparent_temperature_min")
+        val p = d.doubles("precipitation_sum")
+        val r = d.doubles("rain_sum")
+        val ph = d.doubles("precipitation_hours")
+        val g = d.doubles("wind_gusts_10m_max")
+        val sun = d.doubles("sunshine_duration")
+        val wc = d.doubles("weather_code")
+        return times.mapIndexedNotNull { i, date ->
+            date ?: return@mapIndexedNotNull null
+            ArchiveDay(date, tmax.at(i), tmin.at(i), tmean.at(i), fmax.at(i), fmin.at(i), p.at(i), r.at(i),
+                ph.at(i), g.at(i), sun.at(i), wc.at(i)?.toInt())
+        }
+    }
+
     fun parseGeocoding(body: String): List<GeoPlace> {
         val root = json.parseToJsonElement(body).jsonObject
         val results = root["results"] as? JsonArray ?: return emptyList()

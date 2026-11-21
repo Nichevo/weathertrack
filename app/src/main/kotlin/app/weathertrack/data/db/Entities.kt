@@ -96,3 +96,28 @@ data class PlaceEntity(
     @androidx.room.ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
     @androidx.room.ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
 )
+
+/** One observed day from the Open-Meteo archive (reanalysis), as received. Key: (place, date). */
+@Entity(
+    tableName = "observed_day",
+    primaryKeys = ["place_id", "date"],
+    indices = [Index("pull_id")],
+)
+data class ObservedDayEntity(
+    @androidx.room.ColumnInfo(name = "place_id") val placeId: Long,
+    /** Local date at the place, yyyy-MM-dd. */
+    val date: String,
+    @androidx.room.ColumnInfo(name = "pull_id") val pullId: Long,
+    @androidx.room.ColumnInfo(name = "fetched_at") val fetchedAt: Long,
+    @androidx.room.ColumnInfo(name = "temperature_max") val temperatureMax: Double?,
+    @androidx.room.ColumnInfo(name = "temperature_min") val temperatureMin: Double?,
+    @androidx.room.ColumnInfo(name = "temperature_mean") val temperatureMean: Double?,
+    @androidx.room.ColumnInfo(name = "apparent_temperature_max") val apparentTemperatureMax: Double?,
+    @androidx.room.ColumnInfo(name = "apparent_temperature_min") val apparentTemperatureMin: Double?,
+    @androidx.room.ColumnInfo(name = "precipitation_sum") val precipitationSum: Double?,
+    @androidx.room.ColumnInfo(name = "rain_sum") val rainSum: Double?,
+    @androidx.room.ColumnInfo(name = "precipitation_hours") val precipitationHours: Double?,
+    @androidx.room.ColumnInfo(name = "wind_gusts_max") val windGustsMax: Double?,
+    @androidx.room.ColumnInfo(name = "sunshine_duration") val sunshineDuration: Double?,
+    @androidx.room.ColumnInfo(name = "weather_code") val weatherCode: Int?,
+)

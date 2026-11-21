@@ -59,6 +59,9 @@ jobs:
           WT_KEY_PASSWORD: ${{ secrets.WT_KEY_PASSWORD }}
         run: ./gradlew --no-daemon :core:test :app:assembleRelease
 
+      - name: Check database migrations match Room's schema
+        run: python3 .github/scripts/check_migrations.py
+
       - name: Name the APK
         run: |
           VERSION="0.1.${{ github.run_number }}"

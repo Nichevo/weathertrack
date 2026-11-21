@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Place
@@ -24,6 +25,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import app.weathertrack.ui.data.DataScreen
+import app.weathertrack.ui.history.HistoryScreen
 import app.weathertrack.ui.home.HomeScreen
 import app.weathertrack.ui.places.PlacesScreen
 import app.weathertrack.ui.theme.WeatherTrackTheme
@@ -32,6 +34,7 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 
 private val tabs = listOf(
     Tab("home", "Today", Icons.Filled.Home),
+    Tab("history", "History", Icons.Filled.DateRange),
     Tab("places", "Places", Icons.Filled.Place),
     Tab("data", "Data", Icons.Filled.List),
 )
@@ -69,6 +72,7 @@ class MainActivity : ComponentActivity() {
                 ) { padding ->
                     NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding)) {
                         composable("home") { HomeScreen() }
+                        composable("history") { HistoryScreen() }
                         composable("places") { PlacesScreen() }
                         composable("data") { DataScreen() }
                     }
