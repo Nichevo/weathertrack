@@ -28,9 +28,11 @@ android {
         if (hasReleaseKey) {
             create("release") {
                 storeFile = file(keystorePath!!)
-                storePassword = System.getenv("WT_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("WT_KEY_ALIAS") ?: "weathertrack"
-                keyPassword = System.getenv("WT_KEY_PASSWORD") ?: System.getenv("WT_KEYSTORE_PASSWORD")
+                // Trim whitespace that can sneak in when secrets are pasted.
+                val storePass = System.getenv("WT_KEYSTORE_PASSWORD")?.trim()
+                storePassword = storePass
+                keyAlias = System.getenv("WT_KEY_ALIAS")?.trim()?.ifEmpty { null } ?: "weathertrack"
+                keyPassword = System.getenv("WT_KEY_PASSWORD")?.trim()?.ifEmpty { null } ?: storePass
             }
         }
     }

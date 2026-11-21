@@ -26,18 +26,30 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Decode signing key
+      - name: Decode and check signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.WT_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.WT_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.WT_KEY_ALIAS }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
-            echo "WT_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
-            echo "SIGNED=true" >> "$GITHUB_ENV"
-          else
+          if [ -z "$KEYSTORE_BASE64" ]; then
             echo "::warning::WT_KEYSTORE_BASE64 secret not set. The APK is signed with a throwaway debug key and will NOT install over a previous version. See docs/SIGNING.md."
             echo "SIGNED=false" >> "$GITHUB_ENV"
+            exit 0
           fi
+          # Strip any spaces or line breaks picked up when pasting the secrets.
+          printf '%s' "$KEYSTORE_BASE64" | tr -d ' \r\n\t' | base64 -d > "$RUNNER_TEMP/release.jks"
+          STORE_PASSWORD="$(printf '%s' "$STORE_PASSWORD" | tr -d '\r\n')"
+          ALIAS="$(printf '%s' "${KEY_ALIAS:-weathertrack}" | tr -d ' \r\n')"
+          echo "Keystore: $(wc -c < "$RUNNER_TEMP/release.jks") bytes, sha256 $(sha256sum "$RUNNER_TEMP/release.jks" | cut -c1-16)"
+          echo "Password length: ${#STORE_PASSWORD}"
+          if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" -storepass "$STORE_PASSWORD" -alias "$ALIAS" > /dev/null; then
+            echo "::error::Keystore check failed. Either WT_KEYSTORE_BASE64 is not the full keystore, WT_KEYSTORE_PASSWORD is wrong, or WT_KEY_ALIAS is wrong. See docs/SIGNING.md."
+            exit 1
+          fi
+          echo "Signing key OK."
+          echo "WT_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          echo "SIGNED=true" >> "$GITHUB_ENV"
 
       - name: Test and build
         env:
