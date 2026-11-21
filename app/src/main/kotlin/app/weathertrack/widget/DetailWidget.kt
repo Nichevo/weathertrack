@@ -85,14 +85,15 @@ class DetailWidget : GlanceAppWidget() {
         val f = stored.forecast
         val zone = Format.zone(f.timezone)
         val now = System.currentTimeMillis() / 1000
+        val cfg = container.settings.current
         return WidgetSnapshot(
             placeName = place.name,
             forecast = f,
             fetchedAtMs = stored.fetchedAtMs,
             zone = zone,
             nowEpoch = now,
-            jacket = JacketCalculator.evaluate(f.hourly, now, 3, f.quarterHourly).verdict,
-            triggers = TriggerCalculator.evaluate(f.hourly, f.quarterHourly, now) { Format.hour(it, zone) },
+            jacket = JacketCalculator.evaluate(f.hourly, now, 3, f.quarterHourly, cfg.jacketThresholds).verdict,
+            triggers = TriggerCalculator.evaluate(f.hourly, f.quarterHourly, now, cfg.triggerThresholds) { Format.hour(it, zone) },
         )
     }
 }

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -72,7 +73,10 @@ import java.time.ZoneId
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory)) {
+fun HomeScreen(
+    onOpenSettings: () -> Unit = {},
+    vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory),
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     val forecast = state.stored?.forecast
     val zone = Format.zone(forecast?.timezone ?: state.place?.timezone)
@@ -82,6 +86,7 @@ fun HomeScreen(vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory)) {
             title = { PlacePicker(state, onSelect = vm::selectPlace) },
             actions = {
                 IconButton(onClick = { vm.refresh() }) { Icon(Icons.Filled.Refresh, contentDescription = "Refresh") }
+                IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
             },
         )
         if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())

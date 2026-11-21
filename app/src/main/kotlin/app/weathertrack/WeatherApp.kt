@@ -10,7 +10,9 @@ import app.weathertrack.data.WeatherRepository
 import app.weathertrack.data.db.AppDatabase
 import app.weathertrack.data.net.HttpFetcher
 import app.weathertrack.export.DataExporter
-import app.weathertrack.work.RefreshWorker
+import app.weathertrack.notify.Notifier
+import app.weathertrack.settings.SettingsRepository
+import app.weathertrack.work.AlertScheduler
 
 /** Simple manual dependency container. */
 class AppContainer(app: Application) {
@@ -25,6 +27,7 @@ class AppContainer(app: Application) {
     val places = PlaceRepository(app, database.placeDao())
     val history = HistoryRepository(app, database, http)
     val exporter = DataExporter(app, database)
+    val settings = SettingsRepository(app)
 }
 
 class WeatherApp : Application() {
@@ -34,6 +37,7 @@ class WeatherApp : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
-        RefreshWorker.schedule(this)
+        Notifier.createChannels(this)
+        AlertScheduler.apply(this, container.settings.current)
     }
 }

@@ -32,12 +32,12 @@ class RefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         private const val TAG = "RefreshWorker"
         private const val UNIQUE_NAME = "hourly-forecast-refresh"
 
-        fun schedule(context: Context) {
-            val request = PeriodicWorkRequestBuilder<RefreshWorker>(1, TimeUnit.HOURS)
+        fun schedule(context: Context, minutes: Int = 60) {
+            val request = PeriodicWorkRequestBuilder<RefreshWorker>(minutes.coerceAtLeast(15).toLong(), TimeUnit.MINUTES)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
             WorkManager.getInstance(context)
-                .enqueueUniquePeriodicWork(UNIQUE_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+                .enqueueUniquePeriodicWork(UNIQUE_NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
         }
     }
 }
