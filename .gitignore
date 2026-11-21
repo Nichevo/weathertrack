@@ -1,0 +1,22 @@
+# Gradle / Android
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Signing keys and secrets: never commit
+*.jks
+*.keystore
+keystore.properties
+signing/
+
+# Exported user data
+exports/
+*.sqlite
+*.db
+*.csv
