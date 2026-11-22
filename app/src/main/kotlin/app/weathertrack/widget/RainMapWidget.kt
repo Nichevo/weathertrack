@@ -164,7 +164,7 @@ private fun Content(meta: RainWidgetFrames.Meta?, step: Int, bitmap: Bitmap?) {
             }
         }
         Text(
-            "Map © OpenStreetMap, CARTO · radar RainViewer · ${meta.placeName}, updated ${meta.updated}",
+            "Map © OpenStreetMap contributors · radar RainViewer · ${meta.placeName}, updated ${meta.updated}",
             style = style(8, P.muted), modifier = GlanceModifier.padding(start = 12.dp, bottom = 6.dp), maxLines = 1,
         )
     }
