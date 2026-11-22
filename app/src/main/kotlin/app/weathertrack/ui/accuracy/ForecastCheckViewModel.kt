@@ -57,6 +57,12 @@ data class ForecastCheckState(
     val coverage: List<app.weathertrack.core.accuracy.Coverage> = emptyList(),
     /** True when the likely ranges come from the same time of year rather than all days. */
     val seasonal: Boolean = false,
+    /** Hour-by-hour wind and cloud errors by lead. */
+    val windCloud: Map<app.weathertrack.core.accuracy.Measure, List<LeadError>> = emptyMap(),
+    /** How often "sunny or not" was right, by lead. */
+    val sun: List<app.weathertrack.core.accuracy.SunScore> = emptyList(),
+    /** Daily high errors grouped by the cloud forecast for the day. */
+    val highByCloud: Map<app.weathertrack.core.accuracy.CloudRegime, List<LeadError>> = emptyMap(),
 )
 
 class ForecastCheckViewModel(
@@ -149,6 +155,9 @@ class ForecastCheckViewModel(
                 misses = ForecastCheck.misses(r, o, zone, from),
                 actualDays = actuals.keys.count { !it.isBefore(from) },
                 firstActual = actuals.keys.minOrNull(),
+                windCloud = app.weathertrack.core.accuracy.WindCloud.errors(r, o, fromEpoch),
+                sun = app.weathertrack.core.accuracy.WindCloud.sunny(r, o, fromEpoch),
+                highByCloud = app.weathertrack.core.accuracy.WindCloud.highErrorsByRegime(r, o, zone, from),
             )
         }
         _state.update {
@@ -157,6 +166,7 @@ class ForecastCheckViewModel(
                 reliability = result.reliability, misses = result.misses, actualDays = result.actualDays,
                 firstActual = result.firstActual, tempFan = result.tempFan, rainFan = result.rainFan, reports = result.reports,
                 coverage = result.coverage, seasonal = result.seasonal,
+                windCloud = result.windCloud, sun = result.sun, highByCloud = result.highByCloud,
             )
         }
     }

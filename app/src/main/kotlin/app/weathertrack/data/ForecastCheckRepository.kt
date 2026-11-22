@@ -35,7 +35,10 @@ class ForecastCheckRepository(
 
     /** Downloads recent actuals and earlier runs. The first time goes back [FIRST_DAYS] days. */
     suspend fun sync(place: PlaceEntity, onWait: (Int) -> Unit = {}) {
-        val first = dao.observedCount(place.id) == 0 || dao.runCount(place.id) == 0
+        // Wind and cloud were added later: the first sync after that fetches the full 92 days again
+        // so the past three months get them too.
+        val backfilled = prefs.getBoolean("wind_cloud_${place.id}", false)
+        val first = dao.observedCount(place.id) == 0 || dao.runCount(place.id) == 0 || !backfilled
         val days = if (first) FIRST_DAYS else LATER_DAYS
         val nowSec = System.currentTimeMillis() / 1000
 
@@ -50,19 +53,27 @@ class ForecastCheckRepository(
                     temperature = it.temperature, apparentTemperature = it.apparentTemperature,
                     precipitation = it.precipitation, weatherCode = it.weatherCode, windGusts = it.windGusts,
                     humidity = it.humidity, cloudCover = it.cloudCover,
+                    windSpeed = it.windSpeed, windDirection = it.windDirection,
+                    cloudCoverLow = it.cloudCoverLow, cloudCoverMid = it.cloudCoverMid, shortwaveRadiation = it.shortwaveRadiation,
                 )
             })
         }
 
-        val runs = fetch(place, OpenMeteoUrls.previousRuns(place.latitude, place.longitude, days), ENDPOINT_RUNS, onWait)
+        val runs = runCatching { fetch(place, OpenMeteoUrls.previousRuns(place.latitude, place.longitude, days), ENDPOINT_RUNS, onWait) }
+            .getOrElse { e ->
+                // If wind or cloud isn't offered for this spot, keep temperature and rain going.
+                if (e is ArchiveClient.RateLimited) throw e
+                fetch(place, OpenMeteoUrls.previousRuns(place.latitude, place.longitude, days, windCloud = false), ENDPOINT_RUNS, onWait)
+            }
         val runHours = OpenMeteoParser.parsePreviousRuns(runs.body).filter { it.time + 3600 <= nowSec }
         db.withTransaction {
             val pullId = rawDao.insert(raw(place, runs, ENDPOINT_RUNS))
             dao.insertRuns(runHours.map {
-                PreviousRunHourEntity(place.id, it.time, it.lead, pullId, it.temperature, it.precipitation)
+                PreviousRunHourEntity(place.id, it.time, it.lead, pullId, it.temperature, it.precipitation,
+                    it.windSpeed, it.gusts, it.windDirection, it.cloudCover, it.cloudLow, it.cloudMid)
             })
         }
-        prefs.edit().putLong("synced_${place.id}", System.currentTimeMillis()).apply()
+        prefs.edit().putLong("synced_${place.id}", System.currentTimeMillis()).putBoolean("wind_cloud_${place.id}", true).apply()
     }
 
     private suspend fun fetch(place: PlaceEntity, url: String, endpoint: String, onWait: (Int) -> Unit): HttpResult {
@@ -82,11 +93,13 @@ class ForecastCheckRepository(
     )
 
     suspend fun observed(placeId: Long, from: Long): List<ObsHour> = dao.observed(placeId, from).map {
-        ObsHour(it.validTime, it.temperature, it.apparentTemperature, it.precipitation, it.windGusts)
+        ObsHour(it.validTime, it.temperature, it.apparentTemperature, it.precipitation, it.windGusts,
+            it.windSpeed, it.windDirection, it.cloudCover, it.cloudCoverLow, it.cloudCoverMid, it.shortwaveRadiation)
     }
 
     suspend fun runs(placeId: Long, from: Long): List<RunHour> = dao.runs(placeId, from).map {
-        RunHour(it.validTime, it.leadDays, it.temperature, it.precipitation)
+        RunHour(it.validTime, it.leadDays, it.temperature, it.precipitation,
+            it.windSpeed, it.windGusts, it.windDirection, it.cloudCover, it.cloudCoverLow, it.cloudCoverMid)
     }
 
     suspend fun issued(placeId: Long, from: Long, until: Long): List<IssuedHour> = dao.issuedNearTerm(placeId, from, until).map {
@@ -147,14 +160,26 @@ class ForecastCheckRepository(
     }
 }
 
-/** Likely-range bands for daily highs by lead (days ahead), from the last [days] days at a place. */
-suspend fun ForecastCheckRepository.highBands(place: PlaceEntity, days: Long = 3 * 365): Map<Int, app.weathertrack.core.accuracy.Band> {
+/**
+ * Likely-range bands for daily highs by lead (days ahead), from the last [days] days at a place.
+ * With [dayRegimes] (each coming day's forecast cloud), a day forecast to be low cloud or clear uses
+ * the errors from past days of that kind once there are enough of them.
+ */
+suspend fun ForecastCheckRepository.highBands(
+    place: PlaceEntity, days: Long = 3 * 365,
+    dayRegimes: Map<java.time.LocalDate, app.weathertrack.core.accuracy.CloudRegime> = emptyMap(),
+): Map<Int, app.weathertrack.core.accuracy.Band> {
     val zone = app.weathertrack.ui.Format.zone(place.timezone)
     val today = java.time.LocalDate.now(zone)
     val fromEpoch = today.minusDays(days).atStartOfDay(zone).toEpochSecond()
+    val r = runs(place.id, fromEpoch)
+    val o = observed(place.id, fromEpoch)
     // Same time of year across stored years when there are enough days, else everything.
-    val errors = app.weathertrack.core.accuracy.ForecastCheck.seasonalHighErrors(runs(place.id, fromEpoch), observed(place.id, fromEpoch), zone, today)
-    return app.weathertrack.core.accuracy.ForecastCheck.bands(errors)
+    val errors = app.weathertrack.core.accuracy.ForecastCheck.seasonalHighErrors(r, o, zone, today)
+    val base = app.weathertrack.core.accuracy.ForecastCheck.bands(errors)
+    if (dayRegimes.isEmpty()) return base
+    val byRegime = app.weathertrack.core.accuracy.WindCloud.highErrorsByRegime(r, o, zone, today.minusDays(days))
+    return app.weathertrack.core.accuracy.WindCloud.regimeBands(base, byRegime) { lead -> dayRegimes[today.plusDays(lead.toLong())] }
 }
 
 /** What this place's record says about how far to trust the forecast, over the last [days] days. */

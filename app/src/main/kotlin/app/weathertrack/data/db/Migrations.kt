@@ -73,5 +73,24 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+    /** Wind and cloud for Forecast check and the source blend. */
+    val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `observed_hour` ADD COLUMN `wind_speed` REAL")
+            db.execSQL("ALTER TABLE `observed_hour` ADD COLUMN `wind_direction` REAL")
+            db.execSQL("ALTER TABLE `observed_hour` ADD COLUMN `cloud_cover_low` REAL")
+            db.execSQL("ALTER TABLE `observed_hour` ADD COLUMN `cloud_cover_mid` REAL")
+            db.execSQL("ALTER TABLE `observed_hour` ADD COLUMN `shortwave_radiation` REAL")
+            db.execSQL("ALTER TABLE `previous_run_hour` ADD COLUMN `wind_speed` REAL")
+            db.execSQL("ALTER TABLE `previous_run_hour` ADD COLUMN `wind_gusts` REAL")
+            db.execSQL("ALTER TABLE `previous_run_hour` ADD COLUMN `wind_direction` REAL")
+            db.execSQL("ALTER TABLE `previous_run_hour` ADD COLUMN `cloud_cover` REAL")
+            db.execSQL("ALTER TABLE `previous_run_hour` ADD COLUMN `cloud_cover_low` REAL")
+            db.execSQL("ALTER TABLE `previous_run_hour` ADD COLUMN `cloud_cover_mid` REAL")
+            db.execSQL("ALTER TABLE `source_hour` ADD COLUMN `wind_speed` REAL")
+            db.execSQL("ALTER TABLE `source_hour` ADD COLUMN `cloud_cover` REAL")
+        }
+    }
+
+    val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
 }

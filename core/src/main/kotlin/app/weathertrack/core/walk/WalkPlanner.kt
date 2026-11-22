@@ -76,7 +76,9 @@ object WalkPlanner {
                     pave >= Pavement.WARM -> add(WalkIssue(WalkIssueKind.HOT_PAVEMENT, WalkRating.FAIR, "Pavement about ${pave.roundToInt()}°: test it with your hand"))
                 }
             } else {
-                val sunny = h.cloudCover?.let { it < t.pavementMaxCloud } ?: false
+                // Only low and mid cloud shade the pavement; thin high cloud doesn't.
+                val sunny = (app.weathertrack.core.cloud.Sky.blocking(h.cloudCoverLow, h.cloudCoverMid) ?: h.cloudCover)
+                    ?.let { it < t.pavementMaxCloud } ?: false
                 if (sunny && h.isDay != false && (h.temperature ?: -99.0) >= t.pavementMinTemp) {
                     add(WalkIssue(WalkIssueKind.HOT_PAVEMENT, WalkRating.FAIR, "Sunny: pavement may be hot for paws"))
                 }

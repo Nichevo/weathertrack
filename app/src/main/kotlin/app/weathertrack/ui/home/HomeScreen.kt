@@ -121,6 +121,7 @@ fun HomeScreen(
             // 1. Now and the next hours.
             if (forecast != null) {
                 item { NowRow(forecast, clock) }
+                item { CloudLines(forecast, zone) }
                 item { SectionTitle("Next hours") }
                 item { HourStrip(forecast, zone) }
                 // 2. The next days, then their likely ranges.
@@ -276,6 +277,10 @@ private fun SureCard(state: HomeState, zone: ZoneId) {
                     Text("High ${Format.temp(high)}, likely ${Format.range(high + band.low, high + band.high, Format::temp, " to ")}  ",
                         Modifier.weight(1f))
                     app.weathertrack.ui.accuracy.ConfidenceTag(band.confidence)
+                }
+                band.regime?.let { reg ->
+                    Text("Range from ${band.days} past ${reg.label.lowercase()}, since cloud like today's changes how far off highs run.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             // Several models side by side: when they disagree, the forecast is less certain.
@@ -437,6 +442,20 @@ private fun NowRow(f: Forecast, clock: Pair<String, ZoneId>? = null) {
             }
             clock?.let { (name, other) -> Text(secondClock(name, other), style = MaterialTheme.typography.bodyMedium) }
         }
+    }
+}
+
+/** The cloud layers now, and what low cloud or a clear night will do to the temperature. */
+@Composable
+private fun CloudLines(f: Forecast, zone: ZoneId) {
+    val now = System.currentTimeMillis() / 1000
+    val hour = f.hourly.firstOrNull { it.time + 3600 > now }
+    val layers = app.weathertrack.core.cloud.CloudStory.layers(hour)
+    val lines = app.weathertrack.core.cloud.CloudStory.lines(f.hourly, now, zone)
+    if (layers == null && lines.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        layers?.let { Text("Cloud: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        lines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium) }
     }
 }
 

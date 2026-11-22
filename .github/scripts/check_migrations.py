@@ -16,12 +16,26 @@ migrations = (root / "app/src/main/kotlin/app/weathertrack/data/db/Migrations.kt
 
 statements = re.findall(r'"(CREATE (?:TABLE|INDEX|UNIQUE INDEX) IF NOT EXISTS [^"]+)"', generated)
 failed = False
+# A table created by one migration and widened by later ALTERs: compare its CREATE without those columns.
+altered = re.findall(r"ALTER TABLE `(\w+)` ADD COLUMN `(\w+)` ([A-Z]+(?: NOT NULL)?)", migrations)
+
+
+def without_altered(table, statement):
+    if not statement.startswith(f"CREATE TABLE IF NOT EXISTS `{table}`"):
+        return statement
+    for t, column, decl in altered:
+        if t == table:
+            statement = statement.replace(f", `{column}` {decl}", "")
+    return statement
+
+
 for table in MIGRATED_TABLES:
     wanted = [s for s in statements if f"`{table}`" in s]
     if not wanted:
         print(f"No generated statements found for {table}")
         failed = True
     for s in wanted:
+        s = without_altered(table, s)
         if s not in migrations:
             print(f"Missing or different in Migrations.kt:\n  {s}")
             failed = True

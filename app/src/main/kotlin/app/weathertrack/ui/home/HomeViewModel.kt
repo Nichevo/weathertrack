@@ -125,12 +125,20 @@ class HomeViewModel(
     private suspend fun loadBands(place: PlaceEntity) {
         val bands = runCatching {
             if (!forecastCheck.syncedRecently(place.id)) forecastCheck.sync(place)
-            forecastCheck.highBands(place)
-        }.getOrElse { runCatching { forecastCheck.highBands(place) }.getOrDefault(emptyMap()) }
+            forecastCheck.highBands(place, dayRegimes = dayRegimes(place))
+        }.getOrElse { runCatching { forecastCheck.highBands(place, dayRegimes = dayRegimes(place)) }.getOrDefault(emptyMap()) }
         if (_state.value.place?.id == place.id) _state.update { it.copy(highBands = bands) }
         loadTrust(place)
         loadFans(place)
         loadSources(place)
+    }
+
+    /** Each coming day's cloud (low cloud, clear or mixed by day), from the stored forecast. */
+    private suspend fun dayRegimes(place: PlaceEntity): Map<java.time.LocalDate, app.weathertrack.core.accuracy.CloudRegime> {
+        val f = weather.cachedForecast(place)?.forecast ?: return emptyMap()
+        return app.weathertrack.core.accuracy.WindCloud.dayRegimes(
+            f.hourly.map { Triple(it.time, it.cloudCoverLow, it.cloudCover) }, Format.zone(place.timezone),
+        )
     }
 
     /** Likely ranges for the coming highs and lows, from how far off past forecasts were here. */
@@ -148,7 +156,14 @@ class HomeViewModel(
             val enough = app.weathertrack.core.accuracy.Band.MIN_BAND_DAYS
             val hi = FC.seasonalHighErrors(r, o, zone, today).filter { it.days >= enough }
             val lo = FC.lowErrors(r, o, zone, today.minusDays(90)).filter { it.days >= enough }
-            FC.fan(daily.map { it.first to it.second.temperatureMax }, today, hi) to
+            // A day forecast as low cloud or clear uses past days of the same kind, once there are enough.
+            val regimes = dayRegimes(place)
+            val byRegime = app.weathertrack.core.accuracy.WindCloud.highErrorsByRegime(r, o, zone, today.minusDays(3 * 365L))
+                .mapValues { (_, v) -> v.filter { it.days >= enough } }
+            daily.flatMap { (d, dp) ->
+                val errs = regimes[d]?.let { byRegime[it] }?.takeIf { it.isNotEmpty() } ?: hi
+                FC.fan(listOf(d to dp.temperatureMax), today, errs)
+            } to
                 FC.fan(daily.map { it.first to it.second.temperatureMin }, today, lo)
         }.getOrNull() ?: return
         if (_state.value.place?.id == place.id) _state.update { it.copy(highFan = result.first, lowFan = result.second) }
