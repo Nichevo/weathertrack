@@ -134,3 +134,24 @@ class HomeClimateTest {
         assertNotNull(days[1].solarMj)
     }
 }
+
+class SyncPlanTest {
+    @Test fun newestFirstAndFillsHoles() {
+        val first = LocalDate.of(2000, 1, 1)
+        val end = LocalDate.of(2000, 1, 31)
+        val stored = (1..10).map { LocalDate.of(2000, 1, it) }.toSet() + LocalDate.of(2000, 1, 20)
+        val chunks = app.weathertrack.core.history.SyncPlan.chunks(stored, first, end, chunkDays = 5)
+        assertEquals(
+            listOf(
+                LocalDate.of(2000, 1, 27) to LocalDate.of(2000, 1, 31),
+                LocalDate.of(2000, 1, 22) to LocalDate.of(2000, 1, 26),
+                LocalDate.of(2000, 1, 21) to LocalDate.of(2000, 1, 21),
+                LocalDate.of(2000, 1, 15) to LocalDate.of(2000, 1, 19),
+                LocalDate.of(2000, 1, 11) to LocalDate.of(2000, 1, 14),
+            ),
+            chunks,
+        )
+        assertEquals(emptyList<Pair<LocalDate, LocalDate>>(),
+            app.weathertrack.core.history.SyncPlan.chunks((1..31).map { LocalDate.of(2000, 1, it) }.toSet(), first, end, 5))
+    }
+}

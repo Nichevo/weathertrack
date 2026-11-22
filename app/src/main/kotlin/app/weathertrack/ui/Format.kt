@@ -23,6 +23,13 @@ object Format {
     fun mm(v: Double?): String = v?.let { String.format(Locale.US, "%.1f mm", it) } ?: "–"
     fun uv(v: Double?): String = v?.let { String.format(Locale.US, "%.0f", it) } ?: "–"
 
+    /** "64%" when both ends format the same, otherwise "64%–80%". */
+    fun range(lo: Double?, hi: Double?, f: (Double?) -> String, sep: String = "–"): String {
+        val a = f(lo)
+        val b = f(hi)
+        return if (a == b) a else "$a$sep$b"
+    }
+
     fun ago(epochMs: Long, nowMs: Long = System.currentTimeMillis()): String {
         val mins = ((nowMs - epochMs) / 60_000).coerceAtLeast(0)
         return when {

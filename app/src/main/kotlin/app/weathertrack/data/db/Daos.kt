@@ -88,6 +88,9 @@ interface ObservedDayDao {
     @Query("SELECT MAX(date) FROM observed_day WHERE place_id = :placeId")
     suspend fun lastDate(placeId: Long): String?
 
+    @Query("SELECT date FROM observed_day WHERE place_id = :placeId")
+    suspend fun dates(placeId: Long): List<String>
+
     /** All years of one calendar month ("01".."12") for a place. */
     @Query("SELECT * FROM observed_day WHERE place_id = :placeId AND substr(date, 6, 2) = :month ORDER BY date")
     suspend fun forMonth(placeId: Long, month: String): List<ObservedDayEntity>
@@ -109,6 +112,9 @@ interface ClimateDayDao {
 
     @Query("SELECT MAX(date) FROM climate_day WHERE place_id = :placeId")
     suspend fun lastDate(placeId: Long): String?
+
+    @Query("SELECT date FROM climate_day WHERE place_id = :placeId")
+    suspend fun dates(placeId: Long): List<String>
 
     @Query("SELECT * FROM climate_day WHERE place_id = :placeId ORDER BY date")
     suspend fun all(placeId: Long): List<ClimateDayEntity>

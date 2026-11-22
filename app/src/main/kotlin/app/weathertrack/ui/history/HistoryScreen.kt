@@ -132,7 +132,8 @@ fun HistoryScreen(vm: HistoryViewModel = viewModel(factory = HistoryViewModel.Fa
 private fun StatusLine(s: HistoryState) {
     val r = s.range
     val text = when {
-        s.syncing && s.progress != null -> "Downloading history: ${s.progress.first} of ${s.progress.second} decades"
+        s.syncing && s.waitSeconds != null -> "Open-Meteo asked for a pause. Carrying on in ${s.waitSeconds} s"
+        s.syncing && s.progress != null && s.progress.first < s.progress.second -> "Downloading history: part ${s.progress.first + 1} of ${s.progress.second}, newest first"
         s.syncing -> "Downloading history…"
         r == null || r.days == 0 -> "No history stored yet."
         else -> "${"%,d".format(r.days)} days stored, ${fmt(r.first)} to ${fmt(r.last)}"

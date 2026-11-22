@@ -9,6 +9,7 @@ import app.weathertrack.widget.DetailWidget
 import app.weathertrack.data.PlaceRepository
 import app.weathertrack.data.WeatherRepository
 import app.weathertrack.data.db.AppDatabase
+import app.weathertrack.data.net.ArchiveClient
 import app.weathertrack.data.net.HttpFetcher
 import app.weathertrack.export.DataExporter
 import app.weathertrack.notify.Notifier
@@ -26,8 +27,10 @@ class AppContainer(app: Application) {
     }
     val weather = WeatherRepository(database, http, onForecastStored = updateWidgets)
     val places = PlaceRepository(app, database.placeDao())
-    val history = HistoryRepository(app, database, http)
-    val climate = ClimateRepository(app, database, http)
+    /** Shared so History and Home downloads queue up instead of tripping Open-Meteo's rate limit together. */
+    val archive = ArchiveClient(http)
+    val history = HistoryRepository(app, database, archive)
+    val climate = ClimateRepository(app, database, archive)
     val exporter = DataExporter(app, database)
     val settings = SettingsRepository(app)
 }

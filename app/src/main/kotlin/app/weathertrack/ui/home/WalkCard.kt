@@ -75,8 +75,8 @@ fun WalkCard(w: WalkForecast, zone: ZoneId, nowEpoch: Long) {
             w.issues.forEach { Text("• ${it.text}") }
             w.bestHour?.let { Text("Best time: from ${Format.time(it, zone)}", fontWeight = FontWeight.Medium) }
             Text(
-                "Feels ${Format.temp(w.feelsMin)} to ${Format.temp(w.feelsMax)} · rain ${Format.pct(w.rainChanceMax)} · " +
-                    "humidity ${Format.pct(w.humidityMin)}–${Format.pct(w.humidityMax)}",
+                "Feels ${Format.range(w.feelsMin, w.feelsMax, Format::temp, " to ")} · rain ${Format.pct(w.rainChanceMax)} · " +
+                    "humidity ${Format.range(w.humidityMin, w.humidityMax, Format::pct)}",
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
