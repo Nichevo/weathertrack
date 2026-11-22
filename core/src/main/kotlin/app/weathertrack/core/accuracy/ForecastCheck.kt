@@ -47,6 +47,10 @@ data class Band(val lead: Int, val bias: Double, val low: Double, val high: Doub
 
     companion object { const val MIN_BAND_DAYS = 10 }
 }
+/** How many checked days landed inside the 80% range at one lead. */
+data class Coverage(val lead: Int, val inside: Int, val total: Int) {
+    val share: Double get() = inside.toDouble() / total
+}
 /** One day of a forecast with its likely range, from past errors at the same lead. */
 data class FanPoint(val date: LocalDate, val lead: Int, val value: Double, val low: Double, val high: Double, val days: Int)
 
@@ -116,6 +120,44 @@ object ForecastCheck {
             if (floorZero) { lo = lo.coerceAtLeast(0.0); hi = hi.coerceAtLeast(0.0) }
             FanPoint(d, lead, v, minOf(lo, v), maxOf(hi, v), e.days)
         }
+
+    /**
+     * Like [highErrors], but only from days in the same season as [today] (within [windowDays] days of
+     * the same date in any year), as long as each lead has enough of them; otherwise all days.
+     */
+    fun seasonalHighErrors(
+        runs: List<RunHour>, obs: List<ObsHour>, zone: ZoneId, today: LocalDate, windowDays: Int = 45, leads: List<Int> = LEADS,
+    ): List<LeadError> {
+        val actual = dailyActuals(obs, zone)
+        val fc = dailyRuns(runs, zone)
+        fun near(d: LocalDate): Boolean {
+            val diff = abs(d.dayOfYear - today.dayOfYear)
+            return minOf(diff, 365 - diff) <= windowDays
+        }
+        return leads.mapNotNull { lead ->
+            val all = actual.mapNotNull { (d, a) -> fc[d to lead]?.let { d to a.high - it.first } }
+            val seasonal = all.filter { near(it.first) }
+            val errs = (if (seasonal.size >= Band.MIN_BAND_DAYS) seasonal else all).map { it.second }
+            if (errs.isEmpty()) null else LeadError(lead, errs.size, errs.map { abs(it) }.average(), errs.average(), quantile(errs, 0.1), quantile(errs, 0.9))
+        }
+    }
+
+    /**
+     * Do the "8 in 10" ranges really hold 8 in 10? Ranges are built only from days before [testFrom]
+     * and then checked against the days from [testFrom] on, by lead.
+     */
+    fun coverage(runs: List<RunHour>, obs: List<ObsHour>, zone: ZoneId, testFrom: LocalDate, leads: List<Int> = LEADS): List<Coverage> {
+        val actual = dailyActuals(obs, zone)
+        val fc = dailyRuns(runs, zone)
+        return leads.mapNotNull { lead ->
+            val train = actual.filterKeys { it.isBefore(testFrom) }.mapNotNull { (d, a) -> fc[d to lead]?.let { a.high - it.first } }
+            if (train.size < Band.MIN_BAND_DAYS) return@mapNotNull null
+            val lo = quantile(train, 0.1)
+            val hi = quantile(train, 0.9)
+            val test = actual.filterKeys { !it.isBefore(testFrom) }.mapNotNull { (d, a) -> fc[d to lead]?.let { a.high - it.first } }
+            if (test.isEmpty()) null else Coverage(lead, test.count { it in lo..hi }, test.size)
+        }
+    }
 
     /** Likely-range bands for daily highs by lead, from the same errors. */
     fun bands(errors: List<LeadError>): Map<Int, Band> =

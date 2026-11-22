@@ -44,6 +44,8 @@ object OpenMeteoParser {
             val ccl = h.doubles("cloud_cover_low")
             val ccm = h.doubles("cloud_cover_mid")
             val cch = h.doubles("cloud_cover_high")
+            val sw = h.doubles("shortwave_radiation")
+            val dp = h.doubles("dew_point_2m")
             times.mapIndexedNotNull { i, time ->
                 time ?: return@mapIndexedNotNull null
                 HourPoint(
@@ -63,6 +65,8 @@ object OpenMeteoParser {
                     cloudCoverLow = ccl.at(i),
                     cloudCoverMid = ccm.at(i),
                     cloudCoverHigh = cch.at(i),
+                    shortwaveRadiation = sw.at(i),
+                    dewPoint = dp.at(i),
                 )
             }
         } ?: emptyList()
@@ -84,6 +88,7 @@ object OpenMeteoParser {
             val uvm = d.doubles("uv_index_max")
             val sr = d.longs("sunrise")
             val ss = d.longs("sunset")
+            val et = d.doubles("et0_fao_evapotranspiration")
             val offset = root.num("utc_offset_seconds")?.toLong() ?: 0L
             times.mapIndexedNotNull { i, time ->
                 time ?: return@mapIndexedNotNull null
@@ -100,6 +105,7 @@ object OpenMeteoParser {
                     uvIndexMax = uvm.at(i),
                     sunrise = sr.getOrNull(i),
                     sunset = ss.getOrNull(i),
+                    et0 = et.at(i),
                 )
             }
         } ?: emptyList()
@@ -248,6 +254,24 @@ object OpenMeteoParser {
         }
         if (points.size < 6) return null
         return app.weathertrack.core.tides.TideSeries(points, root.num("latitude") ?: 0.0, root.num("longitude") ?: 0.0)
+    }
+
+    /** Parses a [OpenMeteoUrls.airQuality] response. */
+    fun parseAir(body: String): List<app.weathertrack.core.air.AirHour> {
+        val root = json.parseToJsonElement(body).jsonObject
+        if ((root["error"] as? JsonPrimitive)?.contentOrNull == "true") throw ParseException(root.str("reason") ?: "API error")
+        val h = root.obj("hourly") ?: return emptyList()
+        val times = h.longs("time")
+        val eu = h.doubles("european_aqi"); val us = h.doubles("us_aqi")
+        val pm25 = h.doubles("pm2_5"); val pm10 = h.doubles("pm10"); val o3 = h.doubles("ozone"); val dust = h.doubles("dust")
+        val pollen = app.weathertrack.core.air.Air.POLLEN.associateWith { h.doubles("${it}_pollen") }
+        return times.mapIndexedNotNull { i, t ->
+            t ?: return@mapIndexedNotNull null
+            app.weathertrack.core.air.AirHour(
+                t, eu.at(i), us.at(i), pm25.at(i), pm10.at(i), o3.at(i), dust.at(i),
+                pollen.mapNotNull { (k, v) -> v.at(i)?.let { k to it } }.toMap(),
+            )
+        }
     }
 
     /** One day's high and rain from each model, keyed by model name. */

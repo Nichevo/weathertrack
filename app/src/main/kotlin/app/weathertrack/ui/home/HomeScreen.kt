@@ -86,6 +86,8 @@ fun HomeScreen(
     val onReport: (Boolean) -> Unit = vm::report
     val forecast = state.stored?.forecast
     val zone = Format.zone(forecast?.timezone ?: state.place?.timezone)
+    val skinType = (androidx.compose.ui.platform.LocalContext.current.applicationContext as app.weathertrack.WeatherApp)
+        .container.settings.settings.collectAsStateWithLifecycle().value.skinType
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
@@ -108,6 +110,9 @@ fun HomeScreen(
                         Text(err, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onErrorContainer)
                     }
                 }
+            }
+            if (state.warnings.isNotEmpty()) {
+                item { WarningsCard(state.warnings, zone) }
             }
             item {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -145,6 +150,7 @@ fun HomeScreen(
                 item { SectionTitle("Next hours") }
                 item { HourStrip(forecast, zone) }
                 state.tides?.let { t -> state.place?.let { p -> item { TideCard(t, zone, p.latitude, p.longitude) } } }
+                item { OutdoorCard(forecast, state.air, skinType, zone) }
                 item { SectionTitle("Next 7 days") }
                 val today = java.time.LocalDate.now(zone)
                 val spreadByDate = state.spread.associateBy { it.date }

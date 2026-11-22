@@ -2,6 +2,7 @@ package app.weathertrack.core.walk
 
 import app.weathertrack.core.model.HourPoint
 import app.weathertrack.core.model.WeatherCodes
+import app.weathertrack.core.outdoor.Pavement
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -13,7 +14,7 @@ data class WalkWindow(val name: String, val start: LocalTime, val end: LocalTime
 
 enum class WalkRating { GOOD, FAIR, POOR }
 
-enum class WalkIssueKind { PET_HEAT, HOT_PAVEMENT, COLD, RAIN, THUNDER, WIND, MUGGY, UV }
+enum class WalkIssueKind { PET_HEAT, HOT_PAVEMENT, COLD, RAIN, THUNDER, WIND, MUGGY, UV, DARK }
 
 data class WalkIssue(val kind: WalkIssueKind, val rating: WalkRating, val text: String)
 
@@ -68,10 +69,19 @@ object WalkPlanner {
                     f <= t.coldFeelsLike -> add(WalkIssue(WalkIssueKind.COLD, WalkRating.FAIR, "Cold (feels ${f.roundToInt()}°)"))
                 }
             }
-            val sunny = h.cloudCover?.let { it < t.pavementMaxCloud } ?: false
-            if (sunny && h.isDay != false && (h.temperature ?: -99.0) >= t.pavementMinTemp) {
-                add(WalkIssue(WalkIssueKind.HOT_PAVEMENT, WalkRating.FAIR, "Sunny: pavement may be hot for paws"))
+            val pave = Pavement.estimate(h.temperature, h.shortwaveRadiation, h.windSpeed)
+            if (pave != null) {
+                when {
+                    pave >= Pavement.TOO_HOT -> add(WalkIssue(WalkIssueKind.HOT_PAVEMENT, WalkRating.POOR, "Pavement about ${pave.roundToInt()}°: too hot for paws"))
+                    pave >= Pavement.WARM -> add(WalkIssue(WalkIssueKind.HOT_PAVEMENT, WalkRating.FAIR, "Pavement about ${pave.roundToInt()}°: test it with your hand"))
+                }
+            } else {
+                val sunny = h.cloudCover?.let { it < t.pavementMaxCloud } ?: false
+                if (sunny && h.isDay != false && (h.temperature ?: -99.0) >= t.pavementMinTemp) {
+                    add(WalkIssue(WalkIssueKind.HOT_PAVEMENT, WalkRating.FAIR, "Sunny: pavement may be hot for paws"))
+                }
             }
+            if (h.isDay == false) add(WalkIssue(WalkIssueKind.DARK, WalkRating.GOOD, "After dark: take a light"))
             if (WeatherCodes.isThunder(h.weatherCode)) {
                 add(WalkIssue(WalkIssueKind.THUNDER, WalkRating.POOR, "Thunderstorms"))
             }

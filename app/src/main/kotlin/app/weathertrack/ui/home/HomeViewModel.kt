@@ -48,6 +48,8 @@ data class HomeState(
     val tides: app.weathertrack.core.tides.TideSeries? = null,
     /** How far apart several weather models are, per day. */
     val spread: List<app.weathertrack.core.accuracy.DaySpread> = emptyList(),
+    val air: List<app.weathertrack.core.air.AirHour> = emptyList(),
+    val warnings: List<app.weathertrack.core.warnings.Warning> = emptyList(),
 )
 
 class HomeViewModel(
@@ -87,6 +89,7 @@ class HomeViewModel(
                 it.copy(
                     place = place, stored = cached, error = null, radar = if (same) it.radar else null,
                     tides = if (same) it.tides else null, spread = if (same) it.spread else emptyList(),
+                    air = if (same) it.air else emptyList(), warnings = if (same) it.warnings else emptyList(),
                     trust = if (same) it.trust else null, highBands = if (same) it.highBands else emptyMap(),
                 )
             }
@@ -119,6 +122,10 @@ class HomeViewModel(
         if (_state.value.place?.id == place.id) _state.update { it.copy(tides = tides) }
         val spread = runCatching { extras.spread(place) }.getOrDefault(emptyList())
         if (_state.value.place?.id == place.id) _state.update { it.copy(spread = spread) }
+        val warnings = runCatching { extras.warnings(place) }.getOrDefault(emptyList())
+        if (_state.value.place?.id == place.id) _state.update { it.copy(warnings = warnings) }
+        val air = runCatching { extras.air(place) }.getOrDefault(emptyList())
+        if (_state.value.place?.id == place.id) _state.update { it.copy(air = air) }
     }
 
     private suspend fun loadTrust(place: PlaceEntity) {

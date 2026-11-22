@@ -54,6 +54,14 @@ class DataExporter(private val context: Context, private val db: AppDatabase) {
         out.use { o -> file.inputStream().use { it.copyTo(o) } }
     }
 
+    /** Writes a gzipped copy of the whole database to [out] (for backups). Returns its size in bytes. */
+    suspend fun snapshotGzip(out: java.io.File): Long = withContext(Dispatchers.IO) {
+        db.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").use { it.moveToFirst() }
+        val file = context.getDatabasePath(AppDatabase.NAME)
+        java.util.zip.GZIPOutputStream(out.outputStream().buffered()).use { z -> file.inputStream().use { it.copyTo(z) } }
+        out.length()
+    }
+
     private fun cell(c: Cursor, i: Int): String = when (c.getType(i)) {
         Cursor.FIELD_TYPE_NULL -> ""
         Cursor.FIELD_TYPE_INTEGER -> c.getLong(i).toString()

@@ -12,11 +12,12 @@ object OpenMeteoUrls {
         "temperature_2m", "apparent_temperature", "precipitation_probability", "precipitation",
         "weather_code", "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m", "uv_index",
         "cloud_cover", "relative_humidity_2m", "is_day",
-        "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high",
+        "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high", "shortwave_radiation", "dew_point_2m",
     )
     val DAILY_VARS = listOf(
         "weather_code", "temperature_2m_max", "temperature_2m_min", "precipitation_sum",
         "precipitation_probability_max", "wind_gusts_10m_max", "uv_index_max", "sunrise", "sunset",
+        "et0_fao_evapotranspiration",
     )
     val CURRENT_VARS = listOf(
         "temperature_2m", "apparent_temperature", "precipitation", "weather_code",
@@ -109,6 +110,19 @@ object OpenMeteoUrls {
         MARINE_BASE + "?latitude=${coord(latitude)}&longitude=${coord(longitude)}" +
             "&hourly=sea_level_height_msl&cell_selection=sea&past_days=1&forecast_days=7" +
             "&timezone=GMT&timeformat=unixtime"
+
+    const val AIR_BASE = "https://air-quality-api.open-meteo.com/v1/air-quality"
+    val AIR_VARS = listOf("european_aqi", "us_aqi", "pm2_5", "pm10", "ozone", "dust")
+    val POLLEN_VARS = listOf("alder_pollen", "birch_pollen", "grass_pollen", "mugwort_pollen", "olive_pollen", "ragweed_pollen")
+
+    /** Air quality for the next 2 days (CAMS). Pollen only exists in Europe, so it is asked for only there. */
+    fun airQuality(latitude: Double, longitude: Double, pollen: Boolean): String =
+        AIR_BASE + "?latitude=${coord(latitude)}&longitude=${coord(longitude)}" +
+            "&hourly=${(AIR_VARS + if (pollen) POLLEN_VARS else emptyList()).joinToString(",")}" +
+            "&past_days=1&forecast_days=2&timezone=GMT&timeformat=unixtime"
+
+    /** Rough Europe box for the CAMS European domain (pollen). */
+    fun inEurope(latitude: Double, longitude: Double) = latitude in 30.0..72.0 && longitude in -25.0..45.0
 
     /** Weather models compared for "model spread". */
     val SPREAD_MODELS = listOf("ecmwf_ifs025", "gfs_seamless", "icon_seamless", "gem_seamless", "jma_seamless", "ukmo_seamless")

@@ -43,6 +43,7 @@ object AlertScheduler {
     fun apply(context: Context, s: AppSettings) {
         val wm = WorkManager.getInstance(context)
         RefreshWorker.schedule(context, s.refreshMinutes)
+        app.weathertrack.backup.BackupWorker.schedule(context, s.backupWeekly)
         if (s.anyAlertOn) {
             wm.enqueueUniquePeriodicWork(
                 ALERTS, ExistingPeriodicWorkPolicy.KEEP,
@@ -90,6 +91,8 @@ class AlertWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         if (!s.anyAlertOn) return Result.success()
         val quiet = AlertDecider.isQuiet(LocalTime.now(), s.quietStart, s.quietEnd)
         val walkDue = s.notifyWalks && walkHeadsUpDue(s)
+        // Red and orange warnings get through quiet hours; others wait.
+        if (s.notifyWarnings) runCatching { warningAlerts(app, quiet) }.onFailure { Log.w("Alerts", "Warnings check failed", it) }
         // Walk heads-ups follow your own walk times, so they are allowed in quiet hours.
         if (quiet && !walkDue) return Result.success()
 
@@ -100,6 +103,7 @@ class AlertWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         val now = System.currentTimeMillis() / 1000
         if (walkDue) walkHeadsUp(place.name, f, zone, now, s)
         if (quiet) return Result.success()
+        if (s.notifyColdNight) coldNight(place.name, f, zone, now, s.coldNightTemp.toDouble())
         val enabled = buildSet {
             if (s.notifyRainSoon) add(TriggerKind.RAIN_SOON)
             if (s.notifyHot) add(TriggerKind.TOO_HOT)
@@ -128,6 +132,40 @@ class AlertWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         edit.apply()
         return Result.success()
     }
+}
+
+/** Each new official warning for the selected place, once. */
+private suspend fun CoroutineWorker.warningAlerts(app: WeatherApp, quiet: Boolean) {
+    val place = app.container.places.selected() ?: return
+    val warnings = app.container.extras.warnings(place, "alert")
+    val prefs = applicationContext.getSharedPreferences("alert_state", Context.MODE_PRIVATE)
+    val seen = prefs.getStringSet("warnings_seen", emptySet())!!.toMutableSet()
+    val zone = Format.zone(place.timezone)
+    warnings.filter { it.id !in seen && (!quiet || it.serious) }.forEach { w ->
+        val until = w.expires?.let { " until ${Format.time(it, zone)}" } ?: ""
+        Notifier.show(
+            applicationContext, 400 + (w.id.hashCode() and 0xff), Notifier.CHANNEL_ALERTS,
+            "${w.headline.ifBlank { w.event }} · ${place.name}", (w.description.ifBlank { w.event } + until).take(400),
+        )
+        seen += w.id
+    }
+    // Forget warnings no longer current so the set stays small (kept as is if nothing came back).
+    val keep = if (warnings.isEmpty()) seen.toSet() else seen.filter { id -> warnings.any { it.id == id } }.toSet()
+    prefs.edit().putStringSet("warnings_seen", keep).apply()
+}
+
+/** Evening heads-up (5 to 10 pm) when tonight is cold or frosty, once a night. */
+private fun CoroutineWorker.coldNight(placeName: String, f: app.weathertrack.core.model.Forecast, zone: java.time.ZoneId, now: Long, threshold: Double) {
+    val local = java.time.Instant.ofEpochSecond(now).atZone(zone)
+    if (local.hour !in 17..21) return
+    val prefs = applicationContext.getSharedPreferences("alert_state", Context.MODE_PRIVATE)
+    val key = "cold_night_${local.toLocalDate()}"
+    if (prefs.getBoolean(key, false)) return
+    val night = app.weathertrack.core.outdoor.Frost.tonight(f.hourly, now, zone, threshold) ?: return
+    prefs.edit().putBoolean(key, true).apply()
+    val title = (if (night.frost) "Frost likely tonight" else "Cold night") + " · $placeName"
+    val tips = if (night.frost) ". Cover tender plants and check the car windscreen" else ""
+    Notifier.show(applicationContext, 500, Notifier.CHANNEL_ALERTS, title, night.text(Format.time(night.at, zone)) + tips)
 }
 
 /**
@@ -277,6 +315,7 @@ class MorningWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 add("High ${Format.temp(high)}, likely ${Format.temp(high + band.low)} to ${Format.temp(high + band.high)}")
             }
         }
+        runCatching { c.extras.warnings(place, "morning").forEach { add(it.headline.ifBlank { it.event }) } }
         runCatching {
             c.extras.spread(place, "morning").firstOrNull { it.date == today }?.let { d ->
                 if (d.highsDisagree) add("Models disagree on the high (${Format.temp(d.highMin)} to ${Format.temp(d.highMax)})")

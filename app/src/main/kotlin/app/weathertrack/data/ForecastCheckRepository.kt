@@ -126,11 +126,12 @@ class ForecastCheckRepository(
 }
 
 /** Likely-range bands for daily highs by lead (days ahead), from the last [days] days at a place. */
-suspend fun ForecastCheckRepository.highBands(place: PlaceEntity, days: Long = 90): Map<Int, app.weathertrack.core.accuracy.Band> {
+suspend fun ForecastCheckRepository.highBands(place: PlaceEntity, days: Long = 3 * 365): Map<Int, app.weathertrack.core.accuracy.Band> {
     val zone = app.weathertrack.ui.Format.zone(place.timezone)
-    val from = java.time.LocalDate.now(zone).minusDays(days)
-    val fromEpoch = from.atStartOfDay(zone).toEpochSecond()
-    val errors = app.weathertrack.core.accuracy.ForecastCheck.highErrors(runs(place.id, fromEpoch), observed(place.id, fromEpoch), zone, from)
+    val today = java.time.LocalDate.now(zone)
+    val fromEpoch = today.minusDays(days).atStartOfDay(zone).toEpochSecond()
+    // Same time of year across stored years when there are enough days, else everything.
+    val errors = app.weathertrack.core.accuracy.ForecastCheck.seasonalHighErrors(runs(place.id, fromEpoch), observed(place.id, fromEpoch), zone, today)
     return app.weathertrack.core.accuracy.ForecastCheck.bands(errors)
 }
 
