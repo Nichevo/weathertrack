@@ -105,6 +105,26 @@ fun ForecastCheckScreen(
                 )
             }
 
+            if (s.tempFan.isNotEmpty() || s.rainFan.isNotEmpty()) {
+                Section("Next days: likely range") {
+                    Text(
+                        "The current forecast, with the range 8 in 10 past forecasts at the same lead landed in " +
+                            "(${s.period.label.lowercase()} of history). Wider means less sure.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (s.tempFan.isNotEmpty()) {
+                        Text("Daily high", style = MaterialTheme.typography.labelLarge)
+                        TempFanChart(s.tempFan)
+                    }
+                    if (s.rainFan.isNotEmpty()) {
+                        Text("Rain per day (mm)", style = MaterialTheme.typography.labelLarge)
+                        RainFanChart(s.rainFan)
+                    }
+                }
+            } else if (s.actualDays == 0 && !s.syncing) {
+                Text("No past forecasts to compare yet. Tap refresh at the top to download them.")
+            }
+
             Section("How far off the daily high was") {
                 Text(
                     "Bars show where 8 in 10 days landed (actual minus forecast). The dot is the average. " +
@@ -150,6 +170,20 @@ fun ForecastCheckScreen(
                             Text(m.text, style = MaterialTheme.typography.bodySmall)
                         }
                     }
+                }
+            }
+
+            Section("Your reports") {
+                val r = s.reports
+                if (r == null || r.reports == 0) {
+                    Text("Tap Raining or Dry on Today when you're out. Each report is saved with what the forecast and radar " +
+                        "said at that moment, and scored here.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Text("${r.reports} reports in this period")
+                    r.forecastShare?.let { Text("Forecast agreed with you: ${r.forecastRight} of ${r.forecastJudged} (${(it * 100).roundToInt()}%)") }
+                    r.radarShare?.let { Text("Radar agreed with you: ${r.radarRight} of ${r.radarJudged} (${(it * 100).roundToInt()}%)") }
+                    Text("Today trusts your report for 45 minutes, then radar over the forecast for \"raining now\".",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 

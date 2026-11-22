@@ -193,3 +193,26 @@ data class PreviousRunHourEntity(
     val temperature: Double?,
     val precipitation: Double?,
 )
+
+/** "It's raining" / "It's dry" from the user, with what the forecast and radar said at that moment. */
+@Entity(
+    tableName = "user_report",
+    indices = [Index("place_id", "reported_at")],
+)
+data class UserReportEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @androidx.room.ColumnInfo(name = "place_id") val placeId: Long,
+    /** Epoch seconds UTC. */
+    @androidx.room.ColumnInfo(name = "reported_at") val reportedAt: Long,
+    val latitude: Double,
+    val longitude: Double,
+    val raining: Boolean,
+    /** 15-minute forecast rain (mm) for that moment, from the stored forecast. */
+    @androidx.room.ColumnInfo(name = "forecast_mm") val forecastMm: Double?,
+    /** Hourly rain chance (%) for that hour, from the stored forecast. */
+    @androidx.room.ColumnInfo(name = "forecast_chance") val forecastChance: Double?,
+    /** Share of radar pixels over the spot showing rain (0..1). */
+    @androidx.room.ColumnInfo(name = "radar_here") val radarHere: Double?,
+    /** Time of the radar frame used, epoch seconds. */
+    @androidx.room.ColumnInfo(name = "radar_time") val radarTime: Long?,
+)

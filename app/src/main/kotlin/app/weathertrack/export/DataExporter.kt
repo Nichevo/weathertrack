@@ -20,6 +20,7 @@ class DataExporter(private val context: Context, private val db: AppDatabase) {
         ENERGY_DAY("energy_day", "Imported power use"),
         OBSERVED_HOUR("observed_hour", "Actual hours (for Forecast check)"),
         PREVIOUS_RUN_HOUR("previous_run_hour", "Earlier model runs (for Forecast check)"),
+        USER_REPORT("user_report", "Your raining / dry reports"),
         RAW_PULL("raw_pull", "Raw API responses (JSON)"),
         PLACE("place", "Places"),
     }

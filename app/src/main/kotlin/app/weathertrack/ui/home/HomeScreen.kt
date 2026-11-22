@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -73,6 +74,7 @@ import app.weathertrack.ui.theme.JacketAmberContainer
 import app.weathertrack.ui.theme.OnClearBlueContainer
 import app.weathertrack.ui.theme.OnJacketAmberContainer
 import java.time.ZoneId
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,6 +83,7 @@ fun HomeScreen(
     vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val onReport: (Boolean) -> Unit = vm::report
     val forecast = state.stored?.forecast
     val zone = Format.zone(forecast?.timezone ?: state.place?.timezone)
 
@@ -125,8 +128,12 @@ fun HomeScreen(
                 if (jacket == null) {
                     Text(if (state.loading) "Getting the forecast…" else "No forecast yet. Tap refresh to try again.")
                 } else {
-                    VerdictCard(jacket, zone, state.radar)
+                    VerdictCard(jacket, zone, state.radar, state.myReport)
                 }
+            }
+            if (state.jacket != null) {
+                item { ReportRow(state.reportMessage, onReport = onReport) }
+                item { SureCard(state, zone) }
             }
             if (state.walks.isNotEmpty()) {
                 item { SectionTitle("Walks") }
@@ -137,9 +144,11 @@ fun HomeScreen(
                 item { NowRow(forecast) }
                 item { SectionTitle("Next hours") }
                 item { HourStrip(forecast, zone) }
+                state.tides?.let { t -> state.place?.let { p -> item { TideCard(t, zone, p.latitude, p.longitude) } } }
                 item { SectionTitle("Next 7 days") }
                 val today = java.time.LocalDate.now(zone)
-                items(forecast.daily) { d -> DayRow(d, bandFor(state.highBands, today, d.date)) }
+                val spreadByDate = state.spread.associateBy { it.date }
+                items(forecast.daily) { d -> DayRow(d, bandFor(state.highBands, today, d.date), spreadByDate[d.date]) }
             }
             state.stored?.let { s ->
                 item {
@@ -158,10 +167,15 @@ fun HomeScreen(
  * The "raining now / rain from" line. The 15-minute forecast is a model, so when a recent radar
  * frame is available it decides whether it is raining at the spot right now.
  */
-private fun rainNowText(j: JacketResult, radar: app.weathertrack.core.map.RadarSpot?, zone: ZoneId): String? {
+private fun rainNowText(
+    j: JacketResult, radar: app.weathertrack.core.map.RadarSpot?, zone: ZoneId,
+    mine: app.weathertrack.core.accuracy.RainReport? = null,
+): String? {
     val until = j.rainEndsAt?.let { " until about ${Format.time(it, zone)}" } ?: ""
     val seen = radar?.let { " (radar ${Format.time(it.time, zone)})" } ?: ""
     return when {
+        mine != null -> (if (mine.raining) "Raining (you reported at " else "Dry (you reported at ") + "${Format.time(mine.time, zone)})" +
+            if (!mine.raining && j.rainStartsAt != null && j.rainStartsAt!! > mine.time) ". Rain forecast from about ${Format.time(j.rainStartsAt!!, zone)}" else ""
         radar == null -> j.rainStartsAt?.let { if (j.rainingNow) "Raining now$until" else "Rain likely from about ${Format.time(it, zone)}$until" }
         radar.wetHere -> "Raining here now$seen" + if (j.rainingNow) until else ""
         j.rainingNow -> if (radar.wetNearby) "Showers nearby, dry right here$seen" else "Dry here on radar$seen, though the forecast shows rain"
@@ -170,6 +184,97 @@ private fun rainNowText(j: JacketResult, radar: app.weathertrack.core.map.RadarS
         radar.wetNearby -> "Showers nearby on radar$seen"
         else -> null
     }
+}
+
+/** "It's raining" / "It's dry" buttons: the report is stored with what the forecast and radar said. */
+@Composable
+private fun ReportRow(message: String?, onReport: (Boolean) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Right now here:", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            androidx.compose.material3.OutlinedButton(onClick = { onReport(true) }) {
+                app.weathertrack.ui.WeatherIcon(63, true, size = 20.dp); Spacer(Modifier.width(6.dp)); Text("Raining")
+            }
+            androidx.compose.material3.OutlinedButton(onClick = { onReport(false) }) {
+                app.weathertrack.ui.WeatherIcon(0, true, size = 20.dp); Spacer(Modifier.width(6.dp)); Text("Dry")
+            }
+        }
+        message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+    }
+}
+
+/** The forecast's key numbers next to how often forecasts like them have been right here. */
+@Composable
+private fun SureCard(state: HomeState, zone: ZoneId) {
+    val j = state.jacket ?: return
+    val trust = state.trust
+    val today = java.time.LocalDate.now(zone).toString()
+    val high = state.stored?.forecast?.daily?.firstOrNull { it.date == today }?.temperatureMax
+    val band = state.highBands[0]
+    val cal = trust?.let { app.weathertrack.core.accuracy.Feedback.calibrated(it.reliability, j.maxRainProbability) }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("How sure is this?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            // Rain chance against what actually happened when forecasts said the same.
+            val chance = j.maxRainProbability
+            if (chance != null) {
+                if (cal != null) {
+                    val (happened, hours) = cal
+                    val diff = happened * 100 - chance
+                    Text("Rain: forecast up to ${Format.pct(chance)} by ${Format.time(j.windowEnd, zone)}. " +
+                        "When it has said that here, it rained ${Format.pct(happened * 100)} of the time ($hours hours).")
+                    trust?.let { tr -> app.weathertrack.core.accuracy.RainAdjust.adjusted(chance, tr.reliability) }?.let { adj ->
+                        Text("Adjusted for here: about ${Format.pct(adj)}", fontWeight = FontWeight.Medium)
+                    }
+                    val tip = when {
+                        diff <= -15 -> "Rain is less likely than the forecast suggests."
+                        diff >= 15 -> "Rain is more likely than the forecast suggests."
+                        else -> null
+                    }
+                    tip?.let { Text(it, fontWeight = FontWeight.SemiBold) }
+                } else {
+                    Text("Rain: forecast up to ${Format.pct(chance)}. Not enough stored forecasts yet to check how reliable that is here.",
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            if (high != null && band != null && band.confidence != Confidence.UNKNOWN) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("High ${Format.temp(high)}, likely ${Format.range(high + band.low, high + band.high, Format::temp, " to ")}  ",
+                        Modifier.weight(1f))
+                    app.weathertrack.ui.accuracy.ConfidenceTag(band.confidence)
+                }
+            }
+            // Several models side by side: when they disagree, the forecast is less certain.
+            val spreadToday = state.spread.firstOrNull { it.date == today }
+            val spreadTomorrow = state.spread.firstOrNull { it.date == java.time.LocalDate.now(zone).plusDays(1).toString() }
+            listOfNotNull(spreadToday?.let { "Today" to it }, spreadTomorrow?.let { "Tomorrow" to it }).forEach { (label, sp) ->
+                if (sp.models < 2) return@forEach
+                val split = sp.rainDisagrees || sp.highsDisagree
+                Text(
+                    "$label, ${sp.models} models: high ${Format.temp(sp.highMin)} to ${Format.temp(sp.highMax)}, " +
+                        "rain ${spreadMm(sp.rainMin)} to ${spreadMm(sp.rainMax)}" + if (split) " (they disagree)" else " (they agree)",
+                    fontWeight = if (split) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
+            trust?.jacket?.takeIf { it.decided > 0 }?.let { js ->
+                Text("Jacket call right on ${js.right} of ${js.decided} mornings lately (${Format.pct((js.share ?: 0.0) * 100)}).")
+            }
+            trust?.reports?.takeIf { it.reports > 0 }?.let { r ->
+                val parts = listOfNotNull(
+                    r.forecastShare?.let { "forecast agreed ${r.forecastRight} of ${r.forecastJudged}" },
+                    r.radarShare?.let { "radar agreed ${r.radarRight} of ${r.radarJudged}" },
+                )
+                Text("Your ${r.reports} reports: ${parts.joinToString(", ")}.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+private fun spreadMm(v: Double?) = when {
+    v == null -> "–"
+    v < 0.95 -> if (v < 0.05) "0" else "<1 mm"
+    else -> "${v.roundToInt()} mm"
 }
 
 /** The band for a day [date] ahead of [today]; between learned leads, the next longer one is used. */
@@ -202,7 +307,10 @@ private fun PlacePicker(state: HomeState, onSelect: (Long) -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun VerdictCard(j: JacketResult, zone: ZoneId, radar: app.weathertrack.core.map.RadarSpot?) {
+private fun VerdictCard(
+    j: JacketResult, zone: ZoneId, radar: app.weathertrack.core.map.RadarSpot?,
+    mine: app.weathertrack.core.accuracy.RainReport?,
+) {
     val (bg, fg) = when (j.verdict) {
         Verdict.YES -> JacketAmberContainer to OnJacketAmberContainer
         Verdict.MAYBE -> JacketAmberContainer.copy(alpha = 0.55f) to OnJacketAmberContainer
@@ -235,7 +343,7 @@ private fun VerdictCard(j: JacketResult, zone: ZoneId, radar: app.weathertrack.c
                     )
                 }
             }
-            rainNowText(j, radar, zone)?.let { Text(it, fontWeight = FontWeight.Medium) }
+            rainNowText(j, radar, zone, mine)?.let { Text(it, fontWeight = FontWeight.Medium) }
             if (j.reasons.isEmpty()) {
                 Text("Dry, light winds and mild for the next ${j.windowHours} hours.")
             } else {
@@ -306,30 +414,61 @@ private fun HourStrip(f: Forecast, zone: ZoneId) {
 
 @Composable
 private fun HourCell(h: HourPoint, zone: ZoneId) {
-    val wet = (h.precipitationProbability ?: 0.0) >= 40
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (wet) JacketAmberContainer else MaterialTheme.colorScheme.surfaceVariant,
-        ),
-    ) {
+    val prob = h.precipitationProbability ?: 0.0
+    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val tint = app.weathertrack.ui.tempColor(h.apparentTemperature ?: h.temperature, dark)
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(
-            Modifier.width(72.dp).padding(vertical = 10.dp),
+            Modifier.width(72.dp)
+                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(tint, tint.copy(alpha = tint.alpha * 0.25f))))
+                .padding(top = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(Format.hour(h.time, zone), style = MaterialTheme.typography.labelMedium)
-            Text(Format.temp(h.temperature), style = MaterialTheme.typography.titleMedium)
-            Text(Format.pct(h.precipitationProbability), style = MaterialTheme.typography.labelSmall)
-            Text(Format.kmh(h.windGusts).removeSuffix(" km/h"), style = MaterialTheme.typography.labelSmall)
+            app.weathertrack.ui.WeatherIcon(h.weatherCode, h.isDay, size = 34.dp)
+            Text(Format.temp(h.temperature), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            h.apparentTemperature?.let {
+                Text("feels ${Format.temp(it)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            val gust = h.windGusts ?: 0.0
+            Text(
+                "💨 ${Format.kmh(h.windGusts).removeSuffix(" km/h")}",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (gust >= 40) FontWeight.Bold else FontWeight.Normal,
+                color = if (gust >= 40) Color(0xFFB3261E) else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            RainBar(prob, h.precipitation)
         }
     }
 }
 
+/** Rain chance as a blue fill along the bottom of an hour, with the amount when there is some. */
 @Composable
-private fun DayRow(d: DayPoint, band: Band?) {
+private fun RainBar(prob: Double, mm: Double?) {
+    val wet = prob >= 40
+    Box(Modifier.fillMaxWidth().height(26.dp).background(Color(0x142F7DD1)), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                .fillMaxHeight((prob / 100.0).toFloat().coerceIn(0f, 1f))
+                .background(Color(0xFF2F7DD1).copy(alpha = 0.25f + 0.5f * (prob / 100.0).toFloat().coerceIn(0f, 1f))),
+        )
+        Text(
+            if ((mm ?: 0.0) >= 0.1) "${Format.pct(prob)} · ${String.format(java.util.Locale.US, "%.1f", mm)}" else Format.pct(prob),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (wet) FontWeight.Bold else FontWeight.Normal,
+            color = if (prob >= 60) Color.White else MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+@Composable
+private fun DayRow(d: DayPoint, band: Band?, spread: app.weathertrack.core.accuracy.DaySpread? = null) {
     Column {
         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(Format.day(d.date), Modifier.width(64.dp), fontWeight = FontWeight.Medium)
+            app.weathertrack.ui.WeatherIcon(d.weatherCode, true, size = 26.dp)
+            Spacer(Modifier.width(6.dp))
             Text(WeatherCodes.describe(d.weatherCode), Modifier.weight(1f))
             Text(Format.pct(d.precipitationProbabilityMax), Modifier.width(48.dp))
             Text("UV ${Format.uv(d.uvIndexMax)}", Modifier.width(48.dp))
@@ -346,6 +485,19 @@ private fun DayRow(d: DayPoint, band: Band?) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 ConfidenceTag(band.confidence)
+            }
+        }
+        if (spread != null && (spread.rainDisagrees || spread.highsDisagree)) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                Spacer(Modifier.width(64.dp))
+                Text(
+                    "Models split: " + listOfNotNull(
+                        if (spread.highsDisagree) "highs ${Format.temp(spread.highMin)} to ${Format.temp(spread.highMax)}" else null,
+                        if (spread.rainDisagrees) "rain ${spreadMm(spread.rainMin)} to ${spreadMm(spread.rainMax)} (${spread.wetModels} of ${spread.models} wet)" else null,
+                    ).joinToString(", "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF8C5A00),
+                )
             }
         }
         HorizontalDivider()

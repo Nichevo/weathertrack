@@ -47,6 +47,9 @@ data class Band(val lead: Int, val bias: Double, val low: Double, val high: Doub
 
     companion object { const val MIN_BAND_DAYS = 10 }
 }
+/** One day of a forecast with its likely range, from past errors at the same lead. */
+data class FanPoint(val date: LocalDate, val lead: Int, val value: Double, val low: Double, val high: Double, val days: Int)
+
 enum class Confidence(val label: String) { HIGH("High"), MEDIUM("Medium"), LOW("Low"), UNKNOWN("Not enough data") }
 
 object ForecastCheck {
@@ -83,6 +86,36 @@ object ForecastCheck {
             if (errs.isEmpty()) null else LeadError(lead, errs.size, errs.map { abs(it) }.average(), errs.average(), quantile(errs, 0.1), quantile(errs, 0.9))
         }
     }
+
+    /** How far off daily rain totals were, by lead, in mm. Error = actual − forecast. */
+    fun rainErrors(runs: List<RunHour>, obs: List<ObsHour>, zone: ZoneId, from: LocalDate, leads: List<Int> = LEADS): List<LeadError> {
+        val actual = dailyActuals(obs, zone)
+        val fc = dailyRuns(runs, zone)
+        return leads.mapNotNull { lead ->
+            val errs = actual.filterKeys { !it.isBefore(from) }.mapNotNull { (d, a) -> fc[d to lead]?.let { a.rainMm - it.second } }
+            if (errs.isEmpty()) null else LeadError(lead, errs.size, errs.map { abs(it) }.average(), errs.average(), quantile(errs, 0.1), quantile(errs, 0.9))
+        }
+    }
+
+    /** The error stats for [lead] days ahead: the nearest longer lead measured, or the longest one. */
+    fun errorFor(errors: List<LeadError>, lead: Int): LeadError? =
+        errors.filter { it.lead >= lead }.minByOrNull { it.lead } ?: errors.maxByOrNull { it.lead }
+
+    /**
+     * Each forecast day with the range that 8 in 10 past forecasts at that lead landed in.
+     * [floorZero] keeps ranges at or above zero (for rain).
+     */
+    fun fan(days: List<Pair<LocalDate, Double?>>, today: LocalDate, errors: List<LeadError>, floorZero: Boolean = false): List<FanPoint> =
+        days.mapNotNull { (d, v) ->
+            v ?: return@mapNotNull null
+            val lead = java.time.temporal.ChronoUnit.DAYS.between(today, d).toInt()
+            if (lead < 0) return@mapNotNull null
+            val e = errorFor(errors, lead) ?: return@mapNotNull null
+            var lo = v + e.p10
+            var hi = v + e.p90
+            if (floorZero) { lo = lo.coerceAtLeast(0.0); hi = hi.coerceAtLeast(0.0) }
+            FanPoint(d, lead, v, minOf(lo, v), maxOf(hi, v), e.days)
+        }
 
     /** Likely-range bands for daily highs by lead, from the same errors. */
     fun bands(errors: List<LeadError>): Map<Int, Band> =
@@ -188,5 +221,63 @@ object ForecastCheck {
         val lo = pos.toInt()
         val hi = minOf(lo + 1, s.size - 1)
         return s[lo] + (s[hi] - s[lo]) * (pos - lo)
+    }
+}
+
+/** A "raining or dry" report the user made, with what the forecast and radar said at that moment. */
+data class RainReport(
+    val time: Long,
+    val raining: Boolean,
+    /** 15-minute forecast rain (mm) for the step holding [time]; null if unknown. */
+    val forecastMm: Double?,
+    /** Share of radar pixels over the spot showing rain (0..1); null if no radar. */
+    val radarHere: Double?,
+)
+
+data class ReportScore(val reports: Int, val forecastRight: Int, val forecastJudged: Int, val radarRight: Int, val radarJudged: Int) {
+    val forecastShare: Double? get() = if (forecastJudged == 0) null else forecastRight.toDouble() / forecastJudged
+    val radarShare: Double? get() = if (radarJudged == 0) null else radarRight.toDouble() / radarJudged
+}
+
+/** How far to trust today's numbers, from this place's record. */
+data class Sureness(
+    /** Highest rain chance in the window, as forecast. */
+    val rainChance: Double?,
+    /** How often it actually rained when the forecast said about that much (null without enough hours). */
+    val rainHappened: Double?,
+    val rainHours: Int,
+    val jacket: JacketScore?,
+    val todayHigh: Double?,
+    val highBand: Band?,
+)
+
+object Feedback {
+    const val WET_MM = 0.1
+    const val RADAR_WET = 0.3
+    /** A report counts as "now" for this long. */
+    const val FRESH_S = 45 * 60L
+
+    fun score(reports: List<RainReport>): ReportScore {
+        var fr = 0; var fj = 0; var rr = 0; var rj = 0
+        for (r in reports) {
+            r.forecastMm?.let { fj++; if ((it >= WET_MM) == r.raining) fr++ }
+            r.radarHere?.let { rj++; if ((it >= RADAR_WET) == r.raining) rr++ }
+        }
+        return ReportScore(reports.size, fr, fj, rr, rj)
+    }
+
+    /** The newest report if it is recent enough to describe right now. */
+    fun current(reports: List<RainReport>, now: Long): RainReport? =
+        reports.filter { now - it.time in 0..FRESH_S }.maxByOrNull { it.time }
+
+    /** How often it rained when the stored forecast said about [chance]%; null with under [minHours] hours. */
+    fun calibrated(reliability: List<Reliability>, chance: Double?, minHours: Int = 20): Pair<Double, Int>? {
+        chance ?: return null
+        val bucket = reliability.firstOrNull { r ->
+            val (lo, hi) = when (r.label) { "0–10%" -> 0.0 to 10.0; "10–30%" -> 10.0 to 30.0; "30–50%" -> 30.0 to 50.0; "50–70%" -> 50.0 to 70.0; else -> 70.0 to 100.1 }
+            chance >= lo && chance < hi
+        } ?: return null
+        val share = bucket.observedShare ?: return null
+        return if (bucket.hours < minHours) null else share to bucket.hours
     }
 }

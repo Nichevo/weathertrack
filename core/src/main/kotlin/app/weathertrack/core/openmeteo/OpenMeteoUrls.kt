@@ -102,6 +102,24 @@ object OpenMeteoUrls {
             "&past_days=$pastDays&forecast_days=1&timezone=auto&timeformat=unixtime"
     }
 
+    const val MARINE_BASE = "https://marine-api.open-meteo.com/v1/marine"
+
+    /** Sea level with tides (metres above mean sea level) from the nearest sea grid cell, yesterday to 7 days ahead. */
+    fun tides(latitude: Double, longitude: Double): String =
+        MARINE_BASE + "?latitude=${coord(latitude)}&longitude=${coord(longitude)}" +
+            "&hourly=sea_level_height_msl&cell_selection=sea&past_days=1&forecast_days=7" +
+            "&timezone=GMT&timeformat=unixtime"
+
+    /** Weather models compared for "model spread". */
+    val SPREAD_MODELS = listOf("ecmwf_ifs025", "gfs_seamless", "icon_seamless", "gem_seamless", "jma_seamless", "ukmo_seamless")
+    val SPREAD_MODELS_SAFE = listOf("ecmwf_ifs025", "gfs_seamless", "icon_seamless")
+
+    /** Daily high and rain from several models, to see how much they disagree. */
+    fun modelSpread(latitude: Double, longitude: Double, models: List<String> = SPREAD_MODELS): String =
+        FORECAST_BASE + "?latitude=${coord(latitude)}&longitude=${coord(longitude)}" +
+            "&daily=temperature_2m_max,precipitation_sum&models=${models.joinToString(",")}" +
+            "&forecast_days=7&timezone=auto"
+
     fun geocode(query: String, count: Int = 10): String =
         GEOCODING_BASE + "?name=" + java.net.URLEncoder.encode(query, "UTF-8") +
             "&count=$count&language=en&format=json"

@@ -79,3 +79,54 @@ class PreviousRunsParseTest {
         assertEquals(9.0, rows.first { it.lead == 1 }.temperature!!, 1e-9)
     }
 }
+
+class FanTest {
+    private val e = listOf(
+        app.weathertrack.core.accuracy.LeadError(1, 30, 1.0, 0.0, -1.0, 1.5),
+        app.weathertrack.core.accuracy.LeadError(3, 30, 2.0, 0.0, -2.0, 3.0),
+        app.weathertrack.core.accuracy.LeadError(7, 30, 3.0, 0.0, -4.0, 4.0),
+    )
+    private val today = java.time.LocalDate.of(2026, 11, 22)
+
+    @org.junit.Test fun widensWithLead() {
+        val f = app.weathertrack.core.accuracy.ForecastCheck.fan(
+            listOf(today.plusDays(1) to 20.0, today.plusDays(2) to 20.0, today.plusDays(9) to 20.0), today, e)
+        org.junit.Assert.assertEquals(19.0, f[0].low, 1e-9)
+        org.junit.Assert.assertEquals(21.5, f[0].high, 1e-9)
+        org.junit.Assert.assertEquals(18.0, f[1].low, 1e-9) // lead 2 uses lead 3
+        org.junit.Assert.assertEquals(24.0, f[2].high, 1e-9) // beyond 7 uses 7
+    }
+
+    @org.junit.Test fun rainNeverBelowZero() {
+        val f = app.weathertrack.core.accuracy.ForecastCheck.fan(listOf(today.plusDays(1) to 0.5), today, e, floorZero = true)
+        org.junit.Assert.assertEquals(0.0, f[0].low, 1e-9)
+        org.junit.Assert.assertEquals(2.0, f[0].high, 1e-9)
+    }
+}
+
+class FeedbackTest {
+    private val F = app.weathertrack.core.accuracy.Feedback
+    private fun r(t: Long, raining: Boolean, mm: Double?, radar: Double?) = app.weathertrack.core.accuracy.RainReport(t, raining, mm, radar)
+
+    @org.junit.Test fun scoresForecastAndRadarSeparately() {
+        val s = F.score(listOf(r(1, true, 0.0, 0.8), r(2, false, 0.5, 0.0), r(3, true, 0.4, null)))
+        org.junit.Assert.assertEquals(3, s.reports)
+        org.junit.Assert.assertEquals(1, s.forecastRight); org.junit.Assert.assertEquals(3, s.forecastJudged)
+        org.junit.Assert.assertEquals(2, s.radarRight); org.junit.Assert.assertEquals(2, s.radarJudged)
+    }
+
+    @org.junit.Test fun onlyFreshReportCountsAsNow() {
+        val list = listOf(r(1000, true, null, null), r(5000, false, null, null))
+        org.junit.Assert.assertEquals(false, F.current(list, 5000 + 600)?.raining)
+        org.junit.Assert.assertNull(F.current(list, 5000 + 3 * 3600))
+    }
+
+    @org.junit.Test fun calibratedUsesBucket() {
+        val rel = listOf(
+            app.weathertrack.core.accuracy.Reliability("50–70%", 60.0, 0.4, 50),
+            app.weathertrack.core.accuracy.Reliability("70%+", 80.0, 0.9, 5),
+        )
+        org.junit.Assert.assertEquals(0.4, F.calibrated(rel, 55.0)!!.first, 1e-9)
+        org.junit.Assert.assertNull(F.calibrated(rel, 75.0)) // too few hours
+    }
+}
