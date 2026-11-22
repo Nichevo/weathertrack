@@ -101,3 +101,33 @@ interface ObservedDayDao {
     @Query("SELECT COUNT(*) FROM observed_day")
     fun count(): Flow<Int>
 }
+
+@Dao
+interface ClimateDayDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(rows: List<ClimateDayEntity>)
+
+    @Query("SELECT MAX(date) FROM climate_day WHERE place_id = :placeId")
+    suspend fun lastDate(placeId: Long): String?
+
+    @Query("SELECT * FROM climate_day WHERE place_id = :placeId ORDER BY date")
+    suspend fun all(placeId: Long): List<ClimateDayEntity>
+
+    @Query("SELECT COUNT(*) AS day_count, MIN(`date`) AS first_date, MAX(`date`) AS last_date FROM climate_day WHERE place_id = :placeId")
+    fun observeRange(placeId: Long): Flow<ObservedRange>
+}
+
+@Dao
+interface EnergyDayDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(rows: List<EnergyDayEntity>)
+
+    @Query("SELECT * FROM energy_day ORDER BY date")
+    suspend fun all(): List<EnergyDayEntity>
+
+    @Query("SELECT COUNT(*) AS day_count, MIN(`date`) AS first_date, MAX(`date`) AS last_date FROM energy_day")
+    fun observeRange(): Flow<ObservedRange>
+
+    @Query("DELETE FROM energy_day")
+    suspend fun clear()
+}

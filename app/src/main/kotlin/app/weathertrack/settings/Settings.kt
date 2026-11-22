@@ -2,6 +2,7 @@ package app.weathertrack.settings
 
 import android.content.Context
 import app.weathertrack.core.alerts.TriggerThresholds
+import app.weathertrack.core.climate.DegreeDayBases
 import app.weathertrack.core.jacket.JacketThresholds
 import app.weathertrack.core.walk.WalkThresholds
 import app.weathertrack.core.walk.WalkWindow
@@ -39,7 +40,13 @@ data class AppSettings(
     val notifyWalks: Boolean = false,
     val walkLeadMinutes: Int = 30,
     val walkNotifyOnlyIfNotGood: Boolean = true,
+    // Home heating and cooling: degree-day base temperatures, °C.
+    val heatingBase: Int = 18,
+    val coolingBase: Int = 22,
 ) {
+    val degreeDayBases: DegreeDayBases
+        get() = DegreeDayBases(heating = heatingBase.toDouble(), cooling = coolingBase.toDouble())
+
     val walkWindows: List<WalkWindow>
         get() = listOf(WalkWindow("Morning walk", walk1Start, walk1End), WalkWindow("Evening walk", walk2Start, walk2End))
 
@@ -108,6 +115,8 @@ class SettingsRepository(context: Context) {
             notifyWalks = prefs.getBoolean("notify_walks", d.notifyWalks),
             walkLeadMinutes = prefs.getInt("walk_lead_minutes", d.walkLeadMinutes),
             walkNotifyOnlyIfNotGood = prefs.getBoolean("walk_only_not_good", d.walkNotifyOnlyIfNotGood),
+            heatingBase = prefs.getInt("heating_base", d.heatingBase),
+            coolingBase = prefs.getInt("cooling_base", d.coolingBase),
         )
     }
 
@@ -136,6 +145,8 @@ class SettingsRepository(context: Context) {
             .putBoolean("notify_walks", s.notifyWalks)
             .putInt("walk_lead_minutes", s.walkLeadMinutes)
             .putBoolean("walk_only_not_good", s.walkNotifyOnlyIfNotGood)
+            .putInt("heating_base", s.heatingBase)
+            .putInt("cooling_base", s.coolingBase)
             .apply()
     }
 }

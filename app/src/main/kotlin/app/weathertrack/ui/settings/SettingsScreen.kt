@@ -131,6 +131,14 @@ fun SettingsScreen(onBack: () -> Unit) {
             Toggle("Only when the walk isn't good", s.walkNotifyOnlyIfNotGood) { on -> repo.update { it.copy(walkNotifyOnlyIfNotGood = on) } }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
+            Section("Home heating and cooling")
+            Note("Days with a mean temperature below the heating base count as heating degree days; above the cooling base, as cooling degree days.")
+            Stepper("Heating base", "${s.heatingBase}°", { repo.update { it.copy(heatingBase = (it.heatingBase - 1).coerceAtLeast(10)) } },
+                { repo.update { it.copy(heatingBase = (it.heatingBase + 1).coerceAtMost(it.coolingBase)) } })
+            Stepper("Cooling base", "${s.coolingBase}°", { repo.update { it.copy(coolingBase = (it.coolingBase - 1).coerceAtLeast(it.heatingBase)) } },
+                { repo.update { it.copy(coolingBase = (it.coolingBase + 1).coerceAtMost(30)) } })
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
             Section("Notifications")
             Note("For your selected place. Rain-soon checks run every 15 minutes while it is on.")
             Toggle("Rain soon", s.notifyRainSoon) { on -> enableNotification(on) { it.copy(notifyRainSoon = on) } }

@@ -53,3 +53,13 @@ forecast is kept exactly as issued. Parsed tables can always be rebuilt from the
 - Own daily log built from stored pulls.
 - Tides (LINZ) for coastal places.
 - Optional Google Drive sync of exports.
+
+## Home heating and cooling (done)
+
+- Home tab: heating and cooling degree days (bases set in Settings, default 18° and 22°), sun energy,
+  sunshine hours, humidity, dew point, muggy and damp-cold days.
+- Month so far against the same days in the last 5 years and the 1991–2020 average; last 8 weeks
+  and last 12 months against average; degree-day totals for every year since 1991.
+- Optional power-usage CSV import (stays on the phone), fitted against degree days:
+  base kWh per day, kWh per heating and per cooling degree day, and how much the weather explains.
+- Stored in climate_day and energy_day; both export as CSV.

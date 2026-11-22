@@ -3,6 +3,7 @@ package app.weathertrack
 import android.app.Application
 import android.util.Log
 import androidx.glance.appwidget.updateAll
+import app.weathertrack.data.ClimateRepository
 import app.weathertrack.data.HistoryRepository
 import app.weathertrack.widget.DetailWidget
 import app.weathertrack.data.PlaceRepository
@@ -26,6 +27,7 @@ class AppContainer(app: Application) {
     val weather = WeatherRepository(database, http, onForecastStored = updateWidgets)
     val places = PlaceRepository(app, database.placeDao())
     val history = HistoryRepository(app, database, http)
+    val climate = ClimateRepository(app, database, http)
     val exporter = DataExporter(app, database)
     val settings = SettingsRepository(app)
 }

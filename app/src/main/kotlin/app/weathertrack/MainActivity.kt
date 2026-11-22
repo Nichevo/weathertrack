@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -24,6 +25,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import app.weathertrack.ui.climate.ClimateScreen
 import app.weathertrack.ui.data.DataScreen
 import app.weathertrack.ui.history.HistoryScreen
 import app.weathertrack.ui.home.HomeScreen
@@ -34,8 +36,9 @@ import app.weathertrack.ui.theme.WeatherTrackTheme
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
-    Tab("home", "Today", Icons.Filled.Home),
+    Tab("home", "Today", Icons.Filled.Star),
     Tab("history", "History", Icons.Filled.DateRange),
+    Tab("climate", "Home", Icons.Filled.Home),
     Tab("places", "Places", Icons.Filled.Place),
     Tab("data", "Data", Icons.Filled.List),
 )
@@ -75,6 +78,7 @@ class MainActivity : ComponentActivity() {
                         composable("home") { HomeScreen(onOpenSettings = { nav.navigate("settings") }) }
                         composable("settings") { SettingsScreen(onBack = { nav.popBackStack() }) }
                         composable("history") { HistoryScreen() }
+                        composable("climate") { ClimateScreen() }
                         composable("places") { PlacesScreen() }
                         composable("data") { DataScreen() }
                     }

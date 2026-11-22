@@ -1,5 +1,6 @@
 package app.weathertrack.core.openmeteo
 
+import app.weathertrack.core.climate.ClimateDay
 import app.weathertrack.core.model.CurrentConditions
 import app.weathertrack.core.model.DayPoint
 import app.weathertrack.core.model.Forecast
@@ -168,6 +169,26 @@ object OpenMeteoParser {
             date ?: return@mapIndexedNotNull null
             ArchiveDay(date, tmax.at(i), tmin.at(i), tmean.at(i), fmax.at(i), fmin.at(i), p.at(i), r.at(i),
                 ph.at(i), g.at(i), sun.at(i), wc.at(i)?.toInt())
+        }
+    }
+
+    /** Parses an archive response requested with [OpenMeteoUrls.archiveClimate]. Missing variables are null. */
+    fun parseClimateDaily(body: String): List<ClimateDay> {
+        val root = json.parseToJsonElement(body).jsonObject
+        if ((root["error"] as? JsonPrimitive)?.contentOrNull == "true") throw ParseException(root.str("reason") ?: "API error")
+        val d = root.obj("daily") ?: return emptyList()
+        val times = (d["time"] as? JsonArray)?.map { (it as? JsonPrimitive)?.contentOrNull } ?: return emptyList()
+        val mean = d.doubles("temperature_2m_mean")
+        val tmax = d.doubles("temperature_2m_max")
+        val tmin = d.doubles("temperature_2m_min")
+        val rh = d.doubles("relative_humidity_2m_mean")
+        val dew = d.doubles("dew_point_2m_mean")
+        val solar = d.doubles("shortwave_radiation_sum")
+        val sun = d.doubles("sunshine_duration")
+        val cloud = d.doubles("cloud_cover_mean")
+        return times.mapIndexedNotNull { i, date ->
+            val day = date?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() } ?: return@mapIndexedNotNull null
+            ClimateDay(day, mean.at(i), tmax.at(i), tmin.at(i), rh.at(i), dew.at(i), solar.at(i), sun.at(i), cloud.at(i))
         }
     }
 
