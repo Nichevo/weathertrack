@@ -217,6 +217,24 @@ object OpenMeteoParser {
         )
     }
 
+    /** Parses a [OpenMeteoUrls.previousRuns] response: one row per hour and lead. */
+    fun parsePreviousRuns(body: String): List<app.weathertrack.core.accuracy.RunHour> {
+        val root = json.parseToJsonElement(body).jsonObject
+        if ((root["error"] as? JsonPrimitive)?.contentOrNull == "true") throw ParseException(root.str("reason") ?: "API error")
+        val h = root.obj("hourly") ?: return emptyList()
+        val times = h.longs("time")
+        return OpenMeteoUrls.PREVIOUS_RUN_LEADS.flatMap { lead ->
+            val suffix = if (lead == 0) "" else "_previous_day$lead"
+            val t = h.doubles("temperature_2m$suffix")
+            val p = h.doubles("precipitation$suffix")
+            times.mapIndexedNotNull { i, time ->
+                time ?: return@mapIndexedNotNull null
+                if (t.at(i) == null && p.at(i) == null) return@mapIndexedNotNull null
+                app.weathertrack.core.accuracy.RunHour(time, lead, t.at(i), p.at(i))
+            }
+        }
+    }
+
     fun parseGeocoding(body: String): List<GeoPlace> {
         val root = json.parseToJsonElement(body).jsonObject
         val results = root["results"] as? JsonArray ?: return emptyList()

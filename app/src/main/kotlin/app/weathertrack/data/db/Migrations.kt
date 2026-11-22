@@ -35,5 +35,15 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+    /** v5: actual hours and earlier model runs, for Forecast check. */
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `observed_hour` (`place_id` INTEGER NOT NULL, `valid_time` INTEGER NOT NULL, `pull_id` INTEGER NOT NULL, `fetched_at` INTEGER NOT NULL, `temperature` REAL, `apparent_temperature` REAL, `precipitation` REAL, `weather_code` INTEGER, `wind_gusts` REAL, `humidity` REAL, `cloud_cover` REAL, PRIMARY KEY(`place_id`, `valid_time`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_observed_hour_pull_id` ON `observed_hour` (`pull_id`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `previous_run_hour` (`place_id` INTEGER NOT NULL, `valid_time` INTEGER NOT NULL, `lead_days` INTEGER NOT NULL, `pull_id` INTEGER NOT NULL, `temperature` REAL, `precipitation` REAL, PRIMARY KEY(`place_id`, `valid_time`, `lead_days`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_previous_run_hour_pull_id` ON `previous_run_hour` (`pull_id`)")
+        }
+    }
+
+    val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
 }

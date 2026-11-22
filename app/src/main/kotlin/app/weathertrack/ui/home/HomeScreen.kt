@@ -64,6 +64,9 @@ import app.weathertrack.core.model.Forecast
 import app.weathertrack.core.model.HourPoint
 import app.weathertrack.core.model.WeatherCodes
 import app.weathertrack.ui.Format
+import app.weathertrack.core.accuracy.Band
+import app.weathertrack.core.accuracy.Confidence
+import app.weathertrack.ui.accuracy.ConfidenceTag
 import app.weathertrack.ui.theme.ClearBlueContainer
 import app.weathertrack.ui.theme.JacketAmber
 import app.weathertrack.ui.theme.JacketAmberContainer
@@ -135,7 +138,8 @@ fun HomeScreen(
                 item { SectionTitle("Next hours") }
                 item { HourStrip(forecast, zone) }
                 item { SectionTitle("Next 7 days") }
-                items(forecast.daily) { DayRow(it) }
+                val today = java.time.LocalDate.now(zone)
+                items(forecast.daily) { d -> DayRow(d, bandFor(state.highBands, today, d.date)) }
             }
             state.stored?.let { s ->
                 item {
@@ -148,6 +152,13 @@ fun HomeScreen(
             }
         }
     }
+}
+
+/** The band for a day [date] ahead of [today]; between learned leads, the next longer one is used. */
+private fun bandFor(bands: Map<Int, Band>, today: java.time.LocalDate, date: String): Band? {
+    val lead = runCatching { java.time.temporal.ChronoUnit.DAYS.between(today, java.time.LocalDate.parse(date)).toInt() }.getOrNull() ?: return null
+    if (lead < 0) return null
+    return bands.keys.filter { it >= lead }.minOrNull()?.let { bands[it] }
 }
 
 @Composable
@@ -301,7 +312,7 @@ private fun HourCell(h: HourPoint, zone: ZoneId) {
 }
 
 @Composable
-private fun DayRow(d: DayPoint) {
+private fun DayRow(d: DayPoint, band: Band?) {
     Column {
         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(Format.day(d.date), Modifier.width(64.dp), fontWeight = FontWeight.Medium)
@@ -309,6 +320,19 @@ private fun DayRow(d: DayPoint) {
             Text(Format.pct(d.precipitationProbabilityMax), Modifier.width(48.dp))
             Text("UV ${Format.uv(d.uvIndexMax)}", Modifier.width(48.dp))
             Text("${Format.temp(d.temperatureMin)} / ${Format.temp(d.temperatureMax)}")
+        }
+        val high = d.temperatureMax
+        if (band != null && high != null && band.confidence != Confidence.UNKNOWN) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.width(64.dp))
+                Text(
+                    "High likely ${Format.range(high + band.low, high + band.high, Format::temp, " to ")}",
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ConfidenceTag(band.confidence)
+            }
         }
         HorizontalDivider()
     }

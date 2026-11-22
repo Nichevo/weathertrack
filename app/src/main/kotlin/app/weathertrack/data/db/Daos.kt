@@ -137,3 +137,34 @@ interface EnergyDayDao {
     @Query("DELETE FROM energy_day")
     suspend fun clear()
 }
+
+@Dao
+interface ForecastCheckDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertObserved(rows: List<ObservedHourEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRuns(rows: List<PreviousRunHourEntity>)
+
+    @Query("SELECT * FROM observed_hour WHERE place_id = :placeId AND valid_time >= :from ORDER BY valid_time")
+    suspend fun observed(placeId: Long, from: Long): List<ObservedHourEntity>
+
+    @Query("SELECT * FROM previous_run_hour WHERE place_id = :placeId AND valid_time >= :from")
+    suspend fun runs(placeId: Long, from: Long): List<PreviousRunHourEntity>
+
+    @Query("SELECT COUNT(*) FROM observed_hour WHERE place_id = :placeId")
+    suspend fun observedCount(placeId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM previous_run_hour WHERE place_id = :placeId")
+    suspend fun runCount(placeId: Long): Int
+
+    /** Forecast hours this app stored, 0 to 24 hours ahead of when they were issued. */
+    @Query(
+        "SELECT * FROM forecast_hour WHERE place_id = :placeId AND valid_time >= :from " +
+            "AND valid_time < :until AND lead_hours BETWEEN 0 AND 24"
+    )
+    suspend fun issuedNearTerm(placeId: Long, from: Long, until: Long): List<ForecastHourEntity>
+
+    @Query("SELECT COUNT(DISTINCT pull_id) FROM forecast_hour WHERE place_id = :placeId")
+    suspend fun storedPulls(placeId: Long): Int
+}
