@@ -82,6 +82,26 @@ object OpenMeteoUrls {
             "&hourly=weather_code&forecast_hours=$hours&past_hours=1" +
             "&timezone=GMT&timeformat=unixtime"
 
+    const val PREVIOUS_RUNS_BASE = "https://previous-runs-api.open-meteo.com/v1/forecast"
+    /** Leads (days) fetched from Previous Runs for Forecast check. 0 is the latest run. */
+    val PREVIOUS_RUN_LEADS = listOf(0, 1, 2, 3, 5, 7)
+
+    /** Past hours (Open-Meteo's best estimate of what happened) for the last [pastDays] days. */
+    fun pastHours(latitude: Double, longitude: Double, pastDays: Int): String =
+        FORECAST_BASE +
+            "?latitude=${coord(latitude)}&longitude=${coord(longitude)}" +
+            "&hourly=temperature_2m,apparent_temperature,precipitation,weather_code,wind_gusts_10m,relative_humidity_2m,cloud_cover" +
+            "&past_days=$pastDays&forecast_days=1&timezone=auto&timeformat=unixtime&wind_speed_unit=kmh"
+
+    /** What earlier model runs forecast for the last [pastDays] days, at each lead in [PREVIOUS_RUN_LEADS]. */
+    fun previousRuns(latitude: Double, longitude: Double, pastDays: Int): String {
+        fun v(name: String) = PREVIOUS_RUN_LEADS.joinToString(",") { if (it == 0) name else "${name}_previous_day$it" }
+        return PREVIOUS_RUNS_BASE +
+            "?latitude=${coord(latitude)}&longitude=${coord(longitude)}" +
+            "&hourly=${v("temperature_2m")},${v("precipitation")}" +
+            "&past_days=$pastDays&forecast_days=1&timezone=auto&timeformat=unixtime"
+    }
+
     fun geocode(query: String, count: Int = 10): String =
         GEOCODING_BASE + "?name=" + java.net.URLEncoder.encode(query, "UTF-8") +
             "&count=$count&language=en&format=json"

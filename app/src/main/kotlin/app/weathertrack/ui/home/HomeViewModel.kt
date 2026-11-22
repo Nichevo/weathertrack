@@ -18,6 +18,7 @@ import app.weathertrack.data.PlaceRepository
 import app.weathertrack.data.StoredForecast
 import app.weathertrack.data.WeatherRepository
 import app.weathertrack.data.db.PlaceEntity
+import app.weathertrack.data.highBands
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +35,8 @@ data class HomeState(
     val walks: List<WalkForecast> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
+    /** Likely range of daily highs by lead (days ahead), learned from Forecast check. */
+    val highBands: Map<Int, app.weathertrack.core.accuracy.Band> = emptyMap(),
 )
 
 class HomeViewModel(
@@ -41,6 +44,7 @@ class HomeViewModel(
     private val placeRepo: PlaceRepository,
     private val updateWidgets: suspend () -> Unit,
     private val settings: SettingsRepository,
+    private val forecastCheck: app.weathertrack.data.ForecastCheckRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state
@@ -69,7 +73,17 @@ class HomeViewModel(
             recompute()
             updateWidgets() // the widget follows the selected place
             if (cached == null || System.currentTimeMillis() - cached.fetchedAtMs > 20 * 60_000) refresh("app")
+            loadBands(place)
         }
+    }
+
+    /** Learns how far off past highs were, so the 7-day rows can show a likely range. */
+    private suspend fun loadBands(place: PlaceEntity) {
+        val bands = runCatching {
+            if (!forecastCheck.syncedRecently(place.id)) forecastCheck.sync(place)
+            forecastCheck.highBands(place)
+        }.getOrElse { runCatching { forecastCheck.highBands(place) }.getOrDefault(emptyMap()) }
+        if (_state.value.place?.id == place.id) _state.update { it.copy(highBands = bands) }
     }
 
     fun refresh(trigger: String = "manual") {
@@ -112,7 +126,10 @@ class HomeViewModel(
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as WeatherApp
-                HomeViewModel(app.container.weather, app.container.places, app.container.updateWidgets, app.container.settings)
+                HomeViewModel(
+                    app.container.weather, app.container.places, app.container.updateWidgets, app.container.settings,
+                    app.container.forecastCheck,
+                )
             }
         }
     }

@@ -158,3 +158,38 @@ data class EnergyDayEntity(
     val source: String?,
     @androidx.room.ColumnInfo(name = "imported_at") val importedAt: Long,
 )
+
+/** What happened in an hour at a place (Open-Meteo's best estimate, refreshed for recent days). */
+@Entity(
+    tableName = "observed_hour",
+    primaryKeys = ["place_id", "valid_time"],
+    indices = [Index("pull_id")],
+)
+data class ObservedHourEntity(
+    @androidx.room.ColumnInfo(name = "place_id") val placeId: Long,
+    @androidx.room.ColumnInfo(name = "valid_time") val validTime: Long,
+    @androidx.room.ColumnInfo(name = "pull_id") val pullId: Long,
+    @androidx.room.ColumnInfo(name = "fetched_at") val fetchedAt: Long,
+    val temperature: Double?,
+    @androidx.room.ColumnInfo(name = "apparent_temperature") val apparentTemperature: Double?,
+    val precipitation: Double?,
+    @androidx.room.ColumnInfo(name = "weather_code") val weatherCode: Int?,
+    @androidx.room.ColumnInfo(name = "wind_gusts") val windGusts: Double?,
+    val humidity: Double?,
+    @androidx.room.ColumnInfo(name = "cloud_cover") val cloudCover: Double?,
+)
+
+/** An hour as forecast lead_days earlier, from Open-Meteo Previous Runs (backfills Forecast check). */
+@Entity(
+    tableName = "previous_run_hour",
+    primaryKeys = ["place_id", "valid_time", "lead_days"],
+    indices = [Index("pull_id")],
+)
+data class PreviousRunHourEntity(
+    @androidx.room.ColumnInfo(name = "place_id") val placeId: Long,
+    @androidx.room.ColumnInfo(name = "valid_time") val validTime: Long,
+    @androidx.room.ColumnInfo(name = "lead_days") val leadDays: Int,
+    @androidx.room.ColumnInfo(name = "pull_id") val pullId: Long,
+    val temperature: Double?,
+    val precipitation: Double?,
+)

@@ -9,8 +9,9 @@ import androidx.room.RoomDatabase
     entities = [
         RawPullEntity::class, ForecastHourEntity::class, ForecastDayEntity::class, PlaceEntity::class,
         ObservedDayEntity::class, ClimateDayEntity::class, EnergyDayEntity::class,
+        ObservedHourEntity::class, PreviousRunHourEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -20,6 +21,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun observedDayDao(): ObservedDayDao
     abstract fun climateDayDao(): ClimateDayDao
     abstract fun energyDayDao(): EnergyDayDao
+    abstract fun forecastCheckDao(): ForecastCheckDao
 
     companion object {
         const val NAME = "weathertrack.db"

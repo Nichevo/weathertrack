@@ -26,6 +26,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import app.weathertrack.ui.climate.ClimateScreen
 import app.weathertrack.ui.data.DataScreen
+import app.weathertrack.ui.accuracy.ForecastCheckScreen
 import app.weathertrack.ui.history.HistoryScreen
 import app.weathertrack.ui.map.RadarIcon
 import app.weathertrack.ui.map.RainMapScreen
@@ -79,10 +80,13 @@ class MainActivity : ComponentActivity() {
                         composable("home") { HomeScreen(onOpenSettings = { nav.navigate("settings") }) }
                         composable("settings") { SettingsScreen(onBack = { nav.popBackStack() }) }
                         composable("map") { RainMapScreen() }
-                        composable("history") { HistoryScreen(onOpenData = { nav.navigate("data") }) }
+                        composable("history") {
+                            HistoryScreen(onOpenData = { nav.navigate("data") }, onOpenCheck = { nav.navigate("check") })
+                        }
                         composable("climate") { ClimateScreen() }
                         composable("places") { PlacesScreen() }
                         composable("data") { DataScreen(onBack = { nav.popBackStack() }) }
+                        composable("check") { ForecastCheckScreen(onBack = { nav.popBackStack() }) }
                     }
                 }
             }
