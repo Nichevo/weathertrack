@@ -28,6 +28,7 @@ import app.weathertrack.ui.data.DataScreen
 import app.weathertrack.ui.history.HistoryScreen
 import app.weathertrack.ui.home.HomeScreen
 import app.weathertrack.ui.places.PlacesScreen
+import app.weathertrack.ui.settings.SettingsScreen
 import app.weathertrack.ui.theme.WeatherTrackTheme
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
@@ -71,7 +72,8 @@ class MainActivity : ComponentActivity() {
                     },
                 ) { padding ->
                     NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding)) {
-                        composable("home") { HomeScreen() }
+                        composable("home") { HomeScreen(onOpenSettings = { nav.navigate("settings") }) }
+                        composable("settings") { SettingsScreen(onBack = { nav.popBackStack() }) }
                         composable("history") { HistoryScreen() }
                         composable("places") { PlacesScreen() }
                         composable("data") { DataScreen() }

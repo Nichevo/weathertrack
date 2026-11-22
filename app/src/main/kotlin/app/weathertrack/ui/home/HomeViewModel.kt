@@ -9,6 +9,7 @@ import app.weathertrack.WeatherApp
 import app.weathertrack.core.alerts.Trigger
 import app.weathertrack.core.alerts.TriggerCalculator
 import app.weathertrack.core.jacket.JacketCalculator
+import app.weathertrack.settings.SettingsRepository
 import app.weathertrack.ui.Format
 import app.weathertrack.core.jacket.JacketResult
 import app.weathertrack.data.PlaceRepository
@@ -36,6 +37,7 @@ class HomeViewModel(
     private val weather: WeatherRepository,
     private val placeRepo: PlaceRepository,
     private val updateWidgets: suspend () -> Unit,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state
@@ -48,6 +50,9 @@ class HomeViewModel(
         }
         viewModelScope.launch {
             placeRepo.selectedId.collect { load() }
+        }
+        viewModelScope.launch {
+            settings.settings.collect { recompute() }
         }
     }
 
@@ -88,10 +93,13 @@ class HomeViewModel(
         val f = s.stored?.forecast ?: return _state.update { it.copy(jacket = null, triggers = emptyList()) }
         val now = System.currentTimeMillis() / 1000
         val zone = Format.zone(f.timezone)
+        val cfg = settings.current
         _state.update {
             it.copy(
-                jacket = JacketCalculator.evaluate(f.hourly, now, s.windowHours, f.quarterHourly),
-                triggers = TriggerCalculator.evaluate(f.hourly, f.quarterHourly, now) { t -> Format.time(t, zone) },
+                jacket = JacketCalculator.evaluate(f.hourly, now, s.windowHours, f.quarterHourly, cfg.jacketThresholds),
+                triggers = TriggerCalculator.evaluate(f.hourly, f.quarterHourly, now, cfg.triggerThresholds) { t ->
+                    Format.time(t, zone)
+                },
             )
         }
     }
@@ -100,7 +108,7 @@ class HomeViewModel(
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as WeatherApp
-                HomeViewModel(app.container.weather, app.container.places, app.container.updateWidgets)
+                HomeViewModel(app.container.weather, app.container.places, app.container.updateWidgets, app.container.settings)
             }
         }
     }
