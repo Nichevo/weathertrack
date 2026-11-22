@@ -47,5 +47,23 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/rain_map_widget_info" />
         </receiver>
+
+        <!-- Quick-settings tile to turn the lock screen weather on and off. -->
+        <service
+            android:name=".notify.LockGlanceTile"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_weather"
+            android:label="@string/lock_glance_tile"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
+        <receiver
+            android:name=".notify.LockGlanceOffReceiver"
+            android:exported="false" />
     </application>
 </manifest>

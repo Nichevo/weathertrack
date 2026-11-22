@@ -25,7 +25,10 @@ import app.weathertrack.data.db.AppDatabase
 import app.weathertrack.data.net.ArchiveClient
 import app.weathertrack.data.net.HttpFetcher
 import app.weathertrack.export.DataExporter
+import app.weathertrack.notify.LockGlance
 import app.weathertrack.notify.Notifier
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import app.weathertrack.settings.SettingsRepository
 import app.weathertrack.work.AlertScheduler
 
@@ -41,6 +44,8 @@ class AppContainer(app: Application) {
         // The rain map widget needs network to draw, so WorkManager does it (it throttles itself to every 10 minutes).
         runCatching { RainWidgetWorker.enqueue(app, force = false) }
             .onFailure { Log.w("WeatherApp", "Rain map widget update failed", it) }
+        runCatching { LockGlance.update(app) }
+            .onFailure { Log.w("WeatherApp", "Lock screen weather update failed", it) }
     }
     val weather = WeatherRepository(database, http, onForecastStored = updateWidgets)
     val places = PlaceRepository(app, database.placeDao())
@@ -67,6 +72,14 @@ class WeatherApp : Application() {
         super.onCreate()
         container = AppContainer(this)
         Notifier.createChannels(this)
+        LockGlance.createChannel(this)
+        // Show or clear the lock screen weather whenever its switch changes (Settings, tile or its own button).
+        container.appScope.launch {
+            container.settings.settings.map { it.lockGlance }.distinctUntilChanged().collect {
+                runCatching { LockGlance.update(this@WeatherApp) }
+                LockGlance.refreshTile(this@WeatherApp)
+            }
+        }
         AlertScheduler.apply(this, container.settings.current)
     }
 }
