@@ -8,6 +8,10 @@ import app.weathertrack.core.warnings.Warning
 import app.weathertrack.core.openmeteo.OpenMeteoParser
 import app.weathertrack.core.openmeteo.OpenMeteoUrls
 import app.weathertrack.core.tides.TideSeries
+import app.weathertrack.core.seasonal.Enso
+import app.weathertrack.core.seasonal.ModelMonth
+import app.weathertrack.core.seasonal.OniMonth
+import app.weathertrack.core.seasonal.Outlook
 import app.weathertrack.data.db.PlaceEntity
 import app.weathertrack.data.db.RawPullDao
 import app.weathertrack.data.db.RawPullEntity
@@ -62,6 +66,16 @@ class ExtrasRepository(private val http: HttpFetcher, private val rawDao: RawPul
             .sortedByDescending { it.serious }
     }
 
+    /** ECMWF SEAS5 monthly outlook (about 7 months) for the place, refreshed daily. */
+    suspend fun seasonalModel(place: PlaceEntity, trigger: String = "app"): List<ModelMonth> =
+        cachedOrFetch(place, ENDPOINT_SEASONAL, SEASONAL_MAX_AGE_MS, trigger) { Outlook.url(place.latitude, place.longitude) }
+            ?.let { Outlook.parseSeasonal(it) }.orEmpty()
+
+    /** NOAA's Oceanic Niño Index (El Niño / La Niña record since 1950), refreshed weekly. */
+    suspend fun oni(place: PlaceEntity, trigger: String = "app"): List<OniMonth> =
+        cachedOrFetch(place, ENDPOINT_ONI, ONI_MAX_AGE_MS, trigger, source = SOURCE_NOAA) { Enso.ONI_URL }
+            ?.let { runCatching { Enso.parseOni(it) }.getOrNull() }.orEmpty()
+
     private fun inNewZealand(lat: Double, lon: Double) = lat in -48.0..-33.5 && lon in 165.5..179.5
 
     private suspend fun cachedOrFetch(
@@ -97,5 +111,10 @@ class ExtrasRepository(private val http: HttpFetcher, private val rawDao: RawPul
         const val ENDPOINT_WARNING_ALERT = "cap_alert"
         const val METSERVICE_CAP_FEED = "https://alerts.metservice.com/cap/rss"
         private const val WARNINGS_MAX_AGE_MS = 15 * 60_000L
+        const val ENDPOINT_SEASONAL = "seasonal_monthly"
+        private const val SEASONAL_MAX_AGE_MS = 24 * 3600_000L
+        const val SOURCE_NOAA = "noaa"
+        const val ENDPOINT_ONI = "oni"
+        private const val ONI_MAX_AGE_MS = 7 * 24 * 3600_000L
     }
 }

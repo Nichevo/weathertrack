@@ -89,7 +89,7 @@ fun HistoryScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item { StatusLine(s) }
-            s.seasons?.let { v -> item { SeasonCard(v) } }
+            s.seasons?.let { v -> item { SeasonCard(v, s.outlook) } }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { vm.shiftMonth(-1) }) { Icon(Icons.Filled.KeyboardArrowLeft, "Previous month") }
