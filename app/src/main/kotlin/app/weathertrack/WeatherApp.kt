@@ -14,6 +14,7 @@ import app.weathertrack.data.ForecastCheckRepository
 import app.weathertrack.data.HistoryRepository
 import app.weathertrack.widget.DetailWidget
 import app.weathertrack.widget.RainWidgetFrames
+import app.weathertrack.widget.RainWidgetWorker
 import app.weathertrack.map.RainMapRepository
 import app.weathertrack.map.RadarSpotChecker
 import app.weathertrack.map.TileStore
@@ -36,11 +37,9 @@ class AppContainer(app: Application) {
     val updateWidgets: suspend () -> Unit = {
         runCatching { DetailWidget().updateAll(app) }
             .onFailure { Log.w("WeatherApp", "Widget update failed", it) }
-        // The rain map widget needs network to draw, so it runs on its own instead of holding up the caller.
-        appScope.launch {
-            runCatching { RainWidgetFrames.refreshIfPlaced(app) }
-                .onFailure { Log.w("WeatherApp", "Rain map widget update failed", it) }
-        }
+        // The rain map widget needs network to draw, so WorkManager does it (it throttles itself to every 10 minutes).
+        runCatching { RainWidgetWorker.enqueue(app, force = false) }
+            .onFailure { Log.w("WeatherApp", "Rain map widget update failed", it) }
     }
     val weather = WeatherRepository(database, http, onForecastStored = updateWidgets)
     val places = PlaceRepository(app, database.placeDao())

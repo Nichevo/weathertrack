@@ -68,7 +68,10 @@ class RainMapWidget : GlanceAppWidget() {
         val meta = RainWidgetFrames.meta(context)
         val step = RainWidgetFrames.step(context).coerceIn(0, STEPS - 1)
         val bitmap = meta?.let { RainWidgetFrames.bitmap(context, step) }
-        provideContent { Content(meta, step, bitmap) }
+        // Nothing drawn yet (just placed, or the last try failed): draw in the background.
+        if (meta == null || bitmap == null) RainWidgetWorker.enqueue(context, force = false)
+        val error = RainWidgetFrames.lastError(context)
+        provideContent { Content(meta, step, bitmap, error) }
     }
 
     companion object {
@@ -91,8 +94,35 @@ class SelectStepAction : ActionCallback {
 
 class RefreshRainWidgetAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        RainWidgetFrames.render(context, force = true)
+        // Drawing needs the network and can take a while, longer than a tap handler may run, so it goes to WorkManager.
+        RainWidgetFrames.setError(context, null)
         RainMapWidget().update(context, glanceId)
+        RainWidgetWorker.enqueue(context, force = true)
+    }
+}
+
+/** Draws the widget's frames in the background, then refreshes every rain map widget. */
+class RainWidgetWorker(context: Context, params: androidx.work.WorkerParameters) : androidx.work.CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val force = inputData.getBoolean("force", false)
+        val placed = GlanceAppWidgetManager(applicationContext).getGlanceIds(RainMapWidget::class.java).isNotEmpty()
+        if (!placed) return Result.success()
+        val drew = RainWidgetFrames.render(applicationContext, force)
+        RainMapWidget().updateAll(applicationContext)
+        return if (drew || RainWidgetFrames.meta(applicationContext) != null) Result.success()
+        else if (runAttemptCount < 2) Result.retry() else Result.success()
+    }
+
+    companion object {
+        fun enqueue(context: Context, force: Boolean) {
+            val req = androidx.work.OneTimeWorkRequestBuilder<RainWidgetWorker>()
+                .setInputData(androidx.work.workDataOf("force" to force))
+                .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
+                .setBackoffCriteria(androidx.work.BackoffPolicy.LINEAR, 30, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            androidx.work.WorkManager.getInstance(context)
+                .enqueueUniqueWork("rain-widget-render", androidx.work.ExistingWorkPolicy.KEEP, req)
+        }
     }
 }
 
@@ -112,11 +142,15 @@ private fun style(size: Int, color: Color = P.text, bold: Boolean = false) =
     TextStyle(fontSize = size.sp, color = ColorProvider(color), fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal)
 
 @Composable
-private fun Content(meta: RainWidgetFrames.Meta?, step: Int, bitmap: Bitmap?) {
+private fun Content(meta: RainWidgetFrames.Meta?, step: Int, bitmap: Bitmap?, error: String?) {
     val root = GlanceModifier.fillMaxSize().background(ColorProvider(P.bg)).cornerRadius(24.dp)
     if (meta == null || bitmap == null) {
         Box(root.padding(16.dp).clickable(actionRunCallback<RefreshRainWidgetAction>()), contentAlignment = Alignment.Center) {
-            Text("Loading the rain map… tap to retry", style = style(13, P.muted))
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(if (error == null) "Drawing the rain map…" else "Couldn't draw the rain map", style = style(13, P.muted, bold = error != null))
+                error?.let { Text(it, style = style(11, P.muted), maxLines = 2) }
+                Text("Tap to try again", style = style(11, P.sel))
+            }
         }
         return
     }
@@ -172,8 +206,9 @@ private fun Content(meta: RainWidgetFrames.Meta?, step: Int, bitmap: Bitmap?) {
 
 /** Draws and stores the widget's frames, and remembers which one is showing. */
 object RainWidgetFrames {
-    private const val WIDTH = 720
-    private const val HEIGHT = 520
+    // Kept small: the picture travels to the home screen inside one update, which must stay well under 1 MB.
+    private const val WIDTH = 560
+    private const val HEIGHT = 400
     private const val ZOOM = 10
     private const val MIN_INTERVAL_MS = 10 * 60_000L
     private val lock = Mutex()
@@ -185,10 +220,14 @@ object RainWidgetFrames {
     private fun prefs(context: Context) = context.getSharedPreferences("rain_widget", Context.MODE_PRIVATE)
 
     fun step(context: Context) = prefs(context).getInt("step", 0)
+    fun lastError(context: Context): String? = prefs(context).getString("error", null)
+    fun setError(context: Context, e: String?) = prefs(context).edit().putString("error", e).apply()
     fun setStep(context: Context, i: Int) = prefs(context).edit().putInt("step", i).apply()
 
     fun bitmap(context: Context, i: Int): Bitmap? =
-        File(dir(context), "frame_$i.png").takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) }
+        File(dir(context), "frame_$i.png").takeIf { it.exists() }?.let {
+            BitmapFactory.decodeFile(it.path, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.RGB_565 })
+        }
 
     fun meta(context: Context): Meta? = runCatching {
         val o = JSONObject(File(dir(context), "meta.json").readText())
@@ -218,9 +257,13 @@ object RainWidgetFrames {
         }
         runCatching {
             val zone = Format.zone(place.timezone)
-            val frames = container.rainMap.radarFrames(trigger = "widget")
-            val grid = container.rainMap.grid(place.latitude, place.longitude, halfWidthKm = 30.0, trigger = "widget")
-            val latest = frames.past.lastOrNull()
+            // Radar and forecast rain come from different services; draw whatever arrives.
+            val frames = runCatching { container.rainMap.radarFrames(trigger = "widget") }
+                .onFailure { Log.w("RainMapWidget", "Radar frames failed", it) }.getOrNull()
+            val grid = runCatching { container.rainMap.grid(place.latitude, place.longitude, halfWidthKm = 30.0, trigger = "widget") }
+                .onFailure { Log.w("RainMapWidget", "Rain grid failed", it) }.getOrNull()
+            if (frames == null && grid == null) error("No network for radar or forecast")
+            val latest = frames?.past?.lastOrNull()
             val now = System.currentTimeMillis() / 1000
             val v = Viewport.at(place.latitude, place.longitude, ZOOM, WIDTH / 2.0, HEIGHT / 2.0)
             val painter = MapPainter(container.tiles)
@@ -229,16 +272,17 @@ object RainWidgetFrames {
             for (i in 0 until RainMapWidget.STEPS) {
                 val at = if (i == 0) now else ((now + i * 3600L) / 900) * 900
                 val layers = if (i == 0) {
-                    MapLayers(radarHost = frames.host, radarFrame = latest, grid = grid, thunderAt = now, marker = marker)
+                    MapLayers(radarHost = frames?.host, radarFrame = latest, grid = grid, thunderAt = now, marker = marker)
                 } else {
                     MapLayers(grid = grid, forecastAt = at, thunderAt = at, marker = marker)
                 }
-                container.tiles.preload(painter.urlsFor(v, layers))
-                val bmp = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888)
+                runCatching { container.tiles.preload(painter.urlsFor(v, layers)) }
+                // RGB_565 halves the size of what goes to the home screen; the map has no transparency.
+                val bmp = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.RGB_565)
                 painter.draw(Canvas(bmp), v, 2f, layers)
                 File(dir(context), "frame_$i.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
                 bmp.recycle()
-                val outlook = RainOutlooks.at(grid, place.latitude, place.longitude, at)
+                val outlook = grid?.let { RainOutlooks.at(it, place.latitude, place.longitude, at) }
                 val rate = outlook?.rateHere
                 val radarTime = if (i == 0 && latest != null) Format.time(latest.time, zone) else Format.time(at, zone)
                 steps += Step(
@@ -246,7 +290,7 @@ object RainWidgetFrames {
                     time = radarTime,
                     headline = outlook?.headline ?: "Rain map",
                     detail = if (i == 0) {
-                        RainOutlooks.firstRain(grid, place.latitude, place.longitude, now)
+                        grid?.let { RainOutlooks.firstRain(it, place.latitude, place.longitude, now) }
                             ?.takeIf { RainBand.of(rate) == null }
                             ?.let { "Rain at your spot from about ${Format.time(it, zone)}" } ?: (outlook?.detail ?: "")
                     } else outlook?.detail ?: "",
@@ -264,7 +308,11 @@ object RainWidgetFrames {
                 }))
             File(dir(context), "meta.json").writeText(o.toString())
             if (old?.placeId != place.id) setStep(context, 0)
+            setError(context, null)
             true
-        }.onFailure { Log.w("RainMapWidget", "Render failed", it) }.getOrDefault(false)
+        }.onFailure {
+            Log.w("RainMapWidget", "Render failed", it)
+            setError(context, it.message?.take(120) ?: it.javaClass.simpleName)
+        }.getOrDefault(false)
     }
 }
