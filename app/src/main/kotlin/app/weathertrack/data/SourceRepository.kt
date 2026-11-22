@@ -5,6 +5,8 @@ import app.weathertrack.core.accuracy.ObsHour
 import app.weathertrack.core.accuracy.RainReport
 import app.weathertrack.core.model.Forecast
 import app.weathertrack.core.sources.BlendHour
+import app.weathertrack.core.sources.DayScore
+import app.weathertrack.core.sources.PastHour
 import app.weathertrack.core.sources.IssuedSourceHour
 import app.weathertrack.core.sources.SourceHour
 import app.weathertrack.core.sources.SourceScore
@@ -12,6 +14,8 @@ import app.weathertrack.core.sources.SourceWeight
 import app.weathertrack.core.sources.Sources
 import app.weathertrack.data.db.PlaceEntity
 import app.weathertrack.data.db.RawPullDao
+import app.weathertrack.data.db.SourceDayDao
+import app.weathertrack.data.db.SourceDayEntity
 import app.weathertrack.data.db.RawPullEntity
 import app.weathertrack.data.db.SourceHourDao
 import app.weathertrack.data.db.SourceHourEntity
@@ -22,6 +26,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.time.LocalDate
+import java.time.ZoneId
 
 /** The latest forecast from every source, how each has done here, and the accuracy-weighted blend. */
 data class SourceView(
@@ -29,13 +35,21 @@ data class SourceView(
     val scores: List<SourceScore>,
     val weights: List<SourceWeight>,
     val blend: List<BlendHour>,
+    /** The last 7 days hour by hour: what happened and what each source said. Newest first. */
+    val past: List<PastHour> = emptyList(),
+    /** The last 7 days, per source and day. */
+    val days: List<DayScore> = emptyList(),
+    /** Earlier days summed per source and week (Monday start). */
+    val weeks: List<DayScore> = emptyList(),
 )
 
 /**
  * Pulls the same place from several forecast sources, stores every hour as issued (and the raw
  * responses), and scores each source against what happened.
  */
-class SourceRepository(private val http: HttpFetcher, private val rawDao: RawPullDao, private val dao: SourceHourDao) {
+class SourceRepository(
+    private val http: HttpFetcher, private val rawDao: RawPullDao, private val dao: SourceHourDao, private val dayDao: SourceDayDao,
+) {
     private val lock = Mutex()
 
     /**
@@ -111,14 +125,38 @@ class SourceRepository(private val http: HttpFetcher, private val rawDao: RawPul
     suspend fun issued(placeId: Long, from: Long, to: Long): List<IssuedSourceHour> =
         dao.forScoring(placeId, from, to, MIN_LEAD_H * HOUR, (MAX_LEAD_H + 1) * HOUR - 1).map { IssuedSourceHour(it.source, it.issuedAt, it.time, it.temperature, it.precipitation, it.rainChance) }
 
-    /** Everything the Sources screen and Today need, scored over the last [days] days. */
-    suspend fun view(placeId: Long, obs: List<ObsHour>, reports: List<RainReport>, days: Long = 60): SourceView {
+    /**
+     * Everything the Sources screen and Today need, scored over the last [days] days. Also saves each
+     * source's daily record, which is kept after the hourly rows are cleared.
+     */
+    suspend fun view(placeId: Long, zone: ZoneId, obs: List<ObsHour>, reports: List<RainReport>, days: Long = 60): SourceView {
         val now = System.currentTimeMillis() / 1000
         val latest = latest(placeId, now - HOUR)
-        val scores = Sources.scores(issued(placeId, now - days * 86400, now), obs, reports, MIN_LEAD_H.toInt(), MAX_LEAD_H.toInt())
+        val issued = issued(placeId, now - days * 86400, now)
+        val scores = Sources.scores(issued, obs, reports, MIN_LEAD_H.toInt(), MAX_LEAD_H.toInt())
         val keys = latest.map { it.source }.distinct()
         val weights = Sources.weights(keys, scores)
-        return SourceView(latest, scores, weights, Sources.blend(latest, weights, now - HOUR))
+
+        val today = LocalDate.now(zone)
+        val past = Sources.pastHours(issued, obs, MIN_LEAD_H.toInt(), MAX_LEAD_H.toInt())
+        // Days near the edge of the hourly window may be partly cleared already, so only recent days are (re)written.
+        val fresh = today.minusDays(SUMMARY_DAYS)
+        runCatching {
+            dayDao.upsert(Sources.daily(past, zone).filter { !it.date.isBefore(fresh) }.map {
+                SourceDayEntity(placeId, it.date.toString(), it.source, it.hours, it.tempAbsSum, it.tempErrSum, it.tempN, it.rainRight, it.rainN)
+            })
+        }.onFailure { Log.w("Sources", "Saving daily records failed", it) }
+        val stored = runCatching { dayDao.since(placeId, today.minusYears(3).toString()) }.getOrDefault(emptyList()).map {
+            DayScore(LocalDate.parse(it.date), it.source, it.hours, it.tempAbsSum, it.tempErrSum, it.tempN, it.rainRight, it.rainN)
+        }
+        val weekStart = today.minusDays(RECENT_DAYS - 1)
+        val recentFrom = weekStart.atStartOfDay(zone).toEpochSecond()
+        return SourceView(
+            latest, scores, weights, Sources.blend(latest, weights, now - HOUR),
+            past = past.filter { it.time > recentFrom },
+            days = stored.filter { !it.date.isBefore(weekStart) },
+            weeks = Sources.weekly(stored.filter { it.date.isBefore(weekStart) }),
+        )
     }
 
     companion object {
@@ -131,5 +169,9 @@ class SourceRepository(private val http: HttpFetcher, private val rawDao: RawPul
         /** Days of past source hours kept (scores look back 60). */
         private const val KEEP_DAYS = 62L
         private const val FORCE_MIN_S = 600L
+        /** Days shown hour by hour and day by day; earlier ones are shown by week. */
+        private const val RECENT_DAYS = 7L
+        /** Days whose daily record is rewritten from the hourly rows (later observations can fill gaps). */
+        private const val SUMMARY_DAYS = 50L
     }
 }

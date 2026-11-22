@@ -236,3 +236,24 @@ data class SourceHourEntity(
     /** 0..100. For single-run models, derived from the amount. */
     @androidx.room.ColumnInfo(name = "rain_chance") val rainChance: Double?,
 )
+
+/** One forecast source's record for one local day at a place, kept after the hourly rows are cleared. */
+@Entity(
+    tableName = "source_day",
+    primaryKeys = ["place_id", "date", "source"],
+)
+data class SourceDayEntity(
+    @androidx.room.ColumnInfo(name = "place_id") val placeId: Long,
+    /** Local date at the place, yyyy-MM-dd. */
+    val date: String,
+    val source: String,
+    /** Hours checked against what happened. */
+    val hours: Int,
+    /** Sum of |forecast − actual| temperature, and of forecast − actual, over [tempN] hours. */
+    @androidx.room.ColumnInfo(name = "temp_abs_sum") val tempAbsSum: Double,
+    @androidx.room.ColumnInfo(name = "temp_err_sum") val tempErrSum: Double,
+    @androidx.room.ColumnInfo(name = "temp_n") val tempN: Int,
+    /** Hours where rain or no rain was called right, out of [rainN]. */
+    @androidx.room.ColumnInfo(name = "rain_right") val rainRight: Int,
+    @androidx.room.ColumnInfo(name = "rain_n") val rainN: Int,
+)

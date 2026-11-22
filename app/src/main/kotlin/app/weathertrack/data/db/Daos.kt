@@ -188,6 +188,15 @@ interface UserReportDao {
 }
 
 @Dao
+interface SourceDayDao {
+    @Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
+    suspend fun upsert(rows: List<SourceDayEntity>)
+
+    @Query("SELECT * FROM source_day WHERE place_id = :placeId AND date >= :from ORDER BY date DESC")
+    suspend fun since(placeId: Long, from: String): List<SourceDayEntity>
+}
+
+@Dao
 interface SourceHourDao {
     @Insert
     suspend fun insertAll(rows: List<SourceHourEntity>)

@@ -65,6 +65,8 @@ data class WidgetSnapshot(
     val walk: WalkForecast?,
     /** e.g. "Low 5:42pm", the next tide turn; null away from the sea. */
     val tide: String? = null,
+    /** The second clock chosen in Settings: place name and its time zone. */
+    val clock: Pair<String, ZoneId>? = null,
 )
 
 private object Palette {
@@ -96,15 +98,23 @@ private fun iconFor(code: Int?, isDay: Boolean): Int = when (code) {
 }
 
 class DetailWidget : GlanceAppWidget() {
-    /** Short (4x2) shows now, badges and the next days; taller adds the 2-hour steps. */
-    override val sizeMode: SizeMode = SizeMode.Responsive(setOf(SHORT, TALL, WIDE, WIDE_TALL))
+    /**
+     * Every size but the very smallest shows the 2-hour steps: below "now" whenever there is the
+     * height (compact under [ROOMY_H]), otherwise beside it when the widget is wide enough. An unfolded
+     * phone gives the widget different cells from the folded one, so the in-between sizes matter.
+     * The launcher picks the largest of these that fits.
+     */
+    override val sizeMode: SizeMode = SizeMode.Responsive(
+        setOf(DpSize(180.dp, 100.dp), DpSize(180.dp, 150.dp), DpSize(290.dp, 100.dp), DpSize(290.dp, 150.dp),
+            DpSize(290.dp, 200.dp), DpSize(400.dp, 100.dp), DpSize(400.dp, 150.dp), DpSize(400.dp, 200.dp)),
+    )
 
     companion object {
-        private val SHORT = DpSize(250.dp, 110.dp)
-        val TALL = DpSize(250.dp, 210.dp)
-        /** Wide, as on an unfolded phone: room for the hours beside everything else. */
-        val WIDE = DpSize(400.dp, 110.dp)
-        private val WIDE_TALL = DpSize(400.dp, 210.dp)
+        /** From this width the hours fit beside "now". */
+        val SIDE_BY_SIDE_W = 290.dp
+        /** From this height the hours fit below "now", compact; from [ROOMY_H] at full size. */
+        val STACK_H = 150.dp
+        val ROOMY_H = 200.dp
     }
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -133,6 +143,7 @@ class DetailWidget : GlanceAppWidget() {
             tide = runCatching { container.extras.tides(place, "widget") }.getOrNull()
                 ?.let { app.weathertrack.core.tides.Tides.now(it, now) }?.next
                 ?.let { (if (it.high) "High " else "Low ") + Format.time(it.time, zone).replace(" ", "").lowercase() },
+            clock = container.places.all().firstOrNull { it.id == cfg.clockPlaceId }?.let { it.name to Format.zone(it.timezone) },
         )
     }
 }
@@ -165,8 +176,9 @@ private fun WidgetContent(s: WidgetSnapshot?) {
         return
     }
     val size = LocalSize.current
-    val tall = size.height >= DetailWidget.TALL.height
-    val wide = size.width >= DetailWidget.WIDE.width
+    val tall = size.height >= DetailWidget.STACK_H
+    val roomy = size.height >= DetailWidget.ROOMY_H
+    val wide = size.width >= DetailWidget.SIDE_BY_SIDE_W
     Column(root) {
         if (wide && !tall) {
             // Wide but short (an unfolded phone): now on the left, the next hours on the right.
@@ -177,15 +189,19 @@ private fun WidgetContent(s: WidgetSnapshot?) {
                     Badges(s)
                 }
                 Spacer(GlanceModifier.width(8.dp))
-                TwoHourSteps(s, GlanceModifier.defaultWeight(), compact = true)
+                TwoHourSteps(s, GlanceModifier.defaultWeight(), compact = true, count = if (size.width >= 400.dp) 6 else 4)
             }
         } else {
             NowRow(s)
             Spacer(GlanceModifier.height(6.dp))
             Badges(s)
-            if (tall) {
+            if (roomy) {
                 Spacer(GlanceModifier.height(6.dp))
                 TwoHourSteps(s, GlanceModifier.fillMaxWidth())
+            } else if (tall) {
+                // Not much height: one line of times and temperatures (rain chance when it's likely).
+                Spacer(GlanceModifier.height(4.dp))
+                MiniHours(s, if (wide) 6 else 4)
             }
         }
         Spacer(GlanceModifier.defaultWeight())
@@ -214,17 +230,18 @@ private fun NowRow(s: WidgetSnapshot) {
             Text(s.placeName, style = text(12, bold = true), maxLines = 1)
             val uvNow = s.forecast.hourly.firstOrNull { it.time + 3600 > s.nowEpoch }?.uvIndex
             Text("UV ${Format.uv(uvNow)} · ${Format.time(s.fetchedAtMs / 1000, s.zone)}", style = text(10, Palette.faint), maxLines = 1)
+            s.clock?.let { (name, zone) -> SecondClock(name, zone) }
         }
     }
 }
 
 /** The next six even hours. */
 @Composable
-private fun TwoHourSteps(s: WidgetSnapshot, modifier: GlanceModifier, compact: Boolean = false) {
+private fun TwoHourSteps(s: WidgetSnapshot, modifier: GlanceModifier, compact: Boolean = false, count: Int = 6) {
     val steps = s.forecast.hourly
         .filter { it.time + 3600 > s.nowEpoch }
         .filter { Instant.ofEpochSecond(it.time).atZone(s.zone).hour % 2 == 0 }
-        .take(6)
+        .take(count)
     Row(modifier) {
         steps.forEach { h -> HourCell(h, s.zone, GlanceModifier.defaultWeight(), compact) }
     }
@@ -304,5 +321,41 @@ private fun DayCell(d: DayPoint, modifier: GlanceModifier) {
             Text("${Format.temp(d.temperatureMax)}/${Format.temp(d.temperatureMin)}", style = text(11, bold = true), maxLines = 1)
         }
         Text(Format.pct(d.precipitationProbabilityMax), style = text(10, if (wet) Palette.rain else Palette.faint, bold = wet), maxLines = 1)
+    }
+}
+
+/** The second clock: the place, its live time (a TextClock, so it keeps time between updates) and the offset. */
+@Composable
+private fun SecondClock(name: String, zone: ZoneId) {
+    val context = androidx.glance.LocalContext.current
+    val now = Instant.now()
+    val diffS = zone.rules.getOffset(now).totalSeconds - ZoneId.systemDefault().rules.getOffset(now).totalSeconds
+    val h = kotlin.math.abs(diffS) / 3600.0
+    val hText = if (h % 1.0 == 0.0) "${h.toInt()}h" else String.format(java.util.Locale.US, "%.1fh", h)
+    val offset = when { diffS > 0 -> "+$hText"; diffS < 0 -> "−$hText"; else -> "same" }
+    val views = android.widget.RemoteViews(context.packageName, R.layout.widget_second_clock).apply {
+        setTextViewText(R.id.second_clock_name, name)
+        setString(R.id.second_clock_time, "setTimeZone", zone.id)
+        setTextViewText(R.id.second_clock_offset, offset)
+    }
+    androidx.glance.appwidget.AndroidRemoteViews(views)
+}
+
+/** One line of the next even hours, for widgets with little height. */
+@Composable
+private fun MiniHours(s: WidgetSnapshot, count: Int) {
+    val steps = s.forecast.hourly
+        .filter { it.time + 3600 > s.nowEpoch }
+        .filter { Instant.ofEpochSecond(it.time).atZone(s.zone).hour % 2 == 0 }
+        .take(count)
+    Row(GlanceModifier.fillMaxWidth()) {
+        steps.forEach { h ->
+            val wet = (h.precipitationProbability ?: 0.0) >= 40
+            Row(GlanceModifier.defaultWeight(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(Format.hour(h.time, s.zone).replace(" ", "").lowercase() + " ", style = text(10, Palette.faint), maxLines = 1)
+                Text(if (wet) Format.pct(h.precipitationProbability) else Format.temp(h.temperature),
+                    style = text(11, if (wet) Palette.rain else Palette.text, bold = true), maxLines = 1)
+            }
+        }
     }
 }

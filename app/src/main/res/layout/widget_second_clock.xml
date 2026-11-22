@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The second clock on the 4x2 widget. A TextClock keeps ticking without the app waking up. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal">
+
+    <TextView
+        android:id="@+id/second_clock_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:maxLines="1"
+        android:textColor="#B3FFFFFF"
+        android:textSize="10sp" />
+
+    <TextClock
+        android:id="@+id/second_clock_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="3dp"
+        android:format12Hour="h:mma"
+        android:format24Hour="HH:mm"
+        android:maxLines="1"
+        android:textColor="#FFFFFFFF"
+        android:textSize="10sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/second_clock_offset"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="3dp"
+        android:maxLines="1"
+        android:textColor="#B3FFFFFF"
+        android:textSize="10sp" />
+</LinearLayout>

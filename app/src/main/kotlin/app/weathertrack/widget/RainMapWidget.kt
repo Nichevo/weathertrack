@@ -25,7 +25,14 @@ import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
-import androidx.glance.appwidget.updateAll
+import androidx.compose.runtime.remember
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.glance.currentState
+import androidx.glance.state.GlanceStateDefinition
+import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
@@ -64,18 +71,42 @@ import java.util.Locale
 class RainMapWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Single
 
+    /**
+     * The step shown and a "frames version" live in Glance state. A widget's session stays alive for
+     * a while after a tap, and later updates only recompose it, so anything read once up front would
+     * go stale: that is why only the first tap used to change the picture.
+     */
+    override val stateDefinition: GlanceStateDefinition<*> = PreferencesGlanceStateDefinition
+
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val meta = RainWidgetFrames.meta(context)
-        val step = RainWidgetFrames.step(context).coerceIn(0, STEPS - 1)
-        val bitmap = meta?.let { RainWidgetFrames.bitmap(context, step) }
         // Nothing drawn yet (just placed, or the last try failed): draw in the background.
-        if (meta == null || bitmap == null) RainWidgetWorker.enqueue(context, force = false)
-        val error = RainWidgetFrames.lastError(context)
-        provideContent { Content(meta, step, bitmap, error) }
+        if (RainWidgetFrames.meta(context) == null) RainWidgetWorker.enqueue(context, force = false)
+        provideContent {
+            val prefs = currentState<Preferences>()
+            val step = (prefs[STEP_KEY] ?: RainWidgetFrames.step(context)).coerceIn(0, STEPS - 1)
+            val version = prefs[VERSION_KEY] ?: 0L
+            val meta = remember(version) { RainWidgetFrames.meta(context) }
+            val bitmap = remember(version, step) { meta?.let { RainWidgetFrames.bitmap(context, step) } }
+            val error = remember(version) { RainWidgetFrames.lastError(context) }
+            Content(meta, step, bitmap, error)
+        }
     }
 
     companion object {
         const val STEPS = 5
+        val STEP_KEY = intPreferencesKey("step")
+        val VERSION_KEY = longPreferencesKey("frames_version")
+
+        /** Tells every rain map widget that new frames (or an error) are stored, then redraws them. */
+        suspend fun reloadAll(context: Context) {
+            val v = System.currentTimeMillis()
+            GlanceAppWidgetManager(context).getGlanceIds(RainMapWidget::class.java).forEach { id ->
+                runCatching {
+                    updateAppWidgetState(context, id) { it[VERSION_KEY] = v }
+                    RainMapWidget().update(context, id)
+                }.onFailure { Log.w("RainMapWidget", "Reload failed", it) }
+            }
+        }
     }
 }
 
@@ -94,12 +125,15 @@ class SelectStepAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val step = (parameters[stepKey] ?: 0).coerceIn(0, RainMapWidget.STEPS - 1)
         // Ignore a double tap on the same button (within a second), so quick taps don't queue up redraws.
-        // Any other tap redraws, even on the step already stored: another widget or a failed redraw may have set it.
         val nowMs = android.os.SystemClock.elapsedRealtime()
         if (step == lastTapStep && nowMs - lastTapMs < 1000) return
         lastTapStep = step; lastTapMs = nowMs
         RainWidgetFrames.setStep(context, step)
-        runCatching { RainMapWidget().update(context, glanceId) }.onFailure { Log.w("RainMapWidget", "Step update failed", it) }
+        runCatching {
+            // The step goes into this widget's own state, which its live session reads when it recomposes.
+            updateAppWidgetState(context, glanceId) { it[RainMapWidget.STEP_KEY] = step }
+            RainMapWidget().update(context, glanceId)
+        }.onFailure { Log.w("RainMapWidget", "Step update failed", it) }
     }
 }
 
@@ -107,7 +141,7 @@ class RefreshRainWidgetAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         // Drawing needs the network and can take a while, longer than a tap handler may run, so it goes to WorkManager.
         RainWidgetFrames.setError(context, null)
-        RainMapWidget().update(context, glanceId)
+        RainMapWidget.reloadAll(context)
         RainWidgetWorker.enqueue(context, force = true)
     }
 }
@@ -119,7 +153,7 @@ class RainWidgetWorker(context: Context, params: androidx.work.WorkerParameters)
         val placed = GlanceAppWidgetManager(applicationContext).getGlanceIds(RainMapWidget::class.java).isNotEmpty()
         if (!placed) return Result.success()
         val drew = RainWidgetFrames.render(applicationContext, force)
-        RainMapWidget().updateAll(applicationContext)
+        RainMapWidget.reloadAll(applicationContext)
         return if (drew || RainWidgetFrames.meta(applicationContext) != null) Result.success()
         else if (runAttemptCount < 2) Result.retry() else Result.success()
     }
@@ -258,7 +292,7 @@ object RainWidgetFrames {
     suspend fun refreshIfPlaced(context: Context) {
         val ids = GlanceAppWidgetManager(context).getGlanceIds(RainMapWidget::class.java)
         if (ids.isEmpty()) return
-        if (render(context, force = false)) RainMapWidget().updateAll(context)
+        if (render(context, force = false)) RainMapWidget.reloadAll(context)
     }
 
     /** Draws the 5 frames for the selected place. Returns true if new frames were written. */

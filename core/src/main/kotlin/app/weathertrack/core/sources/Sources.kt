@@ -25,6 +25,33 @@ data class SourceHour(val source: String, val time: Long, val temperature: Doubl
 /** A stored source hour with when it was issued, for scoring. */
 data class IssuedSourceHour(val source: String, val issuedAt: Long, val time: Long, val temperature: Double?, val precipitation: Double?, val rainChance: Double?)
 
+/** One past hour: what happened, and each source's forecast for it. */
+data class PastHour(val time: Long, val temperature: Double?, val precipitation: Double?, val forecasts: Map<String, IssuedSourceHour>)
+
+/**
+ * One source over one period (a day, or a week when summed): hours checked, temperature misses and
+ * rain or no rain calls. Kept as sums so periods add up exactly.
+ */
+data class DayScore(
+    /** The day, or the Monday that starts the week. */
+    val date: java.time.LocalDate,
+    val source: String,
+    val hours: Int,
+    val tempAbsSum: Double,
+    /** Forecast minus actual, summed: positive means it ran warm. */
+    val tempErrSum: Double,
+    val tempN: Int,
+    val rainRight: Int,
+    val rainN: Int,
+) {
+    val tempMae: Double? get() = if (tempN > 0) tempAbsSum / tempN else null
+    val tempBias: Double? get() = if (tempN > 0) tempErrSum / tempN else null
+    val wetDryRight: Double? get() = if (rainN > 0) rainRight.toDouble() / rainN else null
+
+    operator fun plus(o: DayScore) = copy(hours = hours + o.hours, tempAbsSum = tempAbsSum + o.tempAbsSum,
+        tempErrSum = tempErrSum + o.tempErrSum, tempN = tempN + o.tempN, rainRight = rainRight + o.rainRight, rainN = rainN + o.rainN)
+}
+
 data class SourceScore(
     val source: String,
     /** Hours compared against actuals. */
@@ -211,6 +238,40 @@ object Sources {
                 if (bN > 0) brier / bN else null, repRight, repTotal)
         }.sortedBy { it.brier ?: 1.0 }
     }
+
+    /**
+     * Each past hour with what actually happened and what every source said for it: the latest
+     * forecast made [minLeadH]..[maxLeadH] hours ahead, as in [scores]. Newest hour first.
+     */
+    fun pastHours(issued: List<IssuedSourceHour>, obs: List<ObsHour>, minLeadH: Int = 1, maxLeadH: Int = 30): List<PastHour> {
+        val actual = obs.associateBy { it.time }
+        return issued.filter { (it.time - it.issuedAt) / 3600 in minLeadH..maxLeadH && it.time in actual }
+            .groupBy { it.time }
+            .map { (time, rows) ->
+                val a = actual.getValue(time)
+                PastHour(time, a.temperature, a.precipitation,
+                    rows.groupBy { it.source }.mapValues { (_, v) -> v.maxBy { it.issuedAt } })
+            }
+            .sortedByDescending { it.time }
+    }
+
+    /** Per day and source: how far off temperatures were and how often rain or no rain was right. Newest day first. */
+    fun daily(past: List<PastHour>, zone: java.time.ZoneId): List<DayScore> =
+        past.groupBy { java.time.Instant.ofEpochSecond(it.time).atZone(zone).toLocalDate() }
+            .flatMap { (date, hours) ->
+                hours.flatMap { h -> h.forecasts.values.map { h to it } }.groupBy { it.second.source }.map { (src, pairs) ->
+                    val errs = pairs.mapNotNull { (h, f) -> if (h.temperature != null && f.temperature != null) f.temperature - h.temperature else null }
+                    val rain = pairs.mapNotNull { (h, f) -> if (h.precipitation != null && f.precipitation != null) (f.precipitation >= WET_MM) == (h.precipitation >= WET_MM) else null }
+                    DayScore(date, src, pairs.size, errs.sumOf { abs(it) }, errs.sum(), errs.size, rain.count { it }, rain.size)
+                }
+            }
+            .sortedWith(compareByDescending<DayScore> { it.date }.thenBy { it.source })
+
+    /** Days summed into weeks starting on Monday, per source. Newest week first. */
+    fun weekly(days: List<DayScore>): List<DayScore> =
+        days.groupBy { it.date.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)) to it.source }
+            .map { (k, v) -> v.reduce { a, b -> a + b }.copy(date = k.first) }
+            .sortedWith(compareByDescending<DayScore> { it.date }.thenBy { it.source })
 
     /** Hours of history at which a source's own record counts as much as an equal share. */
     const val PRIOR_HOURS = 48.0

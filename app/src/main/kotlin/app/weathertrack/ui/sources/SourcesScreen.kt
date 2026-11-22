@@ -42,7 +42,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.weathertrack.WeatherApp
+import app.weathertrack.core.sources.DayScore
+import app.weathertrack.core.sources.PastHour
 import app.weathertrack.core.sources.Sources
+import androidx.compose.material3.TextButton
 import app.weathertrack.data.ForecastCheckRepository
 import app.weathertrack.data.PlaceRepository
 import app.weathertrack.data.SourceRepository
@@ -83,7 +86,7 @@ class SourcesViewModel(
             try {
                 runCatching { sources.refresh(place, weather.cachedForecast(place), if (force) "manual" else "sources", force) }
                 val from = System.currentTimeMillis() / 1000 - 60 * 86400L
-                val view = runCatching { sources.view(place.id, check.observed(place.id, from), check.reports(place.id, from)) }.getOrNull()
+                val view = runCatching { sources.view(place.id, Format.zone(place.timezone), check.observed(place.id, from), check.reports(place.id, from)) }.getOrNull()
                 if (mine == loads) _state.update { it.copy(view = view) }
             } finally {
                 if (mine == loads) _state.update { it.copy(loading = false) }
@@ -154,6 +157,8 @@ fun SourcesScreen(vm: SourcesViewModel = viewModel(factory = SourcesViewModel.Fa
                     sc?.takeIf { it.reportsTotal > 0 }?.let { "${it.reportsRight}/${it.reportsTotal}" } ?: "–",
                 )
             }
+            PastSection(v, zone)
+
             Text(
                 "Blend is the weight for rain. Sources: Open-Meteo (ECMWF, NOAA GFS, DWD ICON, UK Met Office, GEM, JMA, Météo-France, CMA, " +
                     "and the ECMWF, GFS and ICON ensembles) and MET Norway (CC BY 4.0). MetService has no free forecast feed, so it isn't included.",
@@ -218,5 +223,152 @@ private fun ScoreRow(a: String, b: String, c: String, d: String, e: String, f: S
         listOf(b, c, d, e, f).forEach {
             Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, fontWeight = w, textAlign = TextAlign.End, maxLines = 1)
         }
+    }
+}
+
+private enum class PastView(val label: String) { HOURS("Hour by hour"), DAYS("Day by day"), WEEKS("By week") }
+
+private val Good = Color(0xFF2E7D32)
+private val Fair = Color(0xFFF9A825)
+private val Poor = Color(0xFFC62828)
+
+/** Shading for a temperature miss: green within 1°, amber within 2.5°, red beyond. */
+private fun tempShade(miss: Double?): Color = when {
+    miss == null -> Color.Transparent
+    miss <= 1.0 -> Good.copy(alpha = 0.22f)
+    miss <= 2.5 -> Fair.copy(alpha = 0.30f)
+    else -> Poor.copy(alpha = 0.28f)
+}
+
+/** Shading for a share of rain calls right. */
+private fun rainShade(right: Double?): Color = when {
+    right == null -> Color.Transparent
+    right >= 0.85 -> Good.copy(alpha = 0.22f)
+    right >= 0.65 -> Fair.copy(alpha = 0.30f)
+    else -> Poor.copy(alpha = 0.28f)
+}
+
+/** Past forecasts: the last 7 days hour by hour or day by day, and earlier weeks summed. */
+@Composable
+private fun PastSection(v: SourceView, zone: java.time.ZoneId) {
+    var view by remember { mutableStateOf(PastView.HOURS) }
+    var temp by remember { mutableStateOf(true) }
+    Text("Past forecasts", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(top = 8.dp))
+    Text(
+        "What each source said (its latest forecast made at least an hour ahead) against what happened. " +
+            "The last 7 days show every hour; earlier days are kept as daily totals and shown by week.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        PastView.entries.forEach { FilterChip(selected = view == it, onClick = { view = it }, label = { Text(it.label) }) }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(selected = temp, onClick = { temp = true }, label = { Text("Temperature") })
+        FilterChip(selected = !temp, onClick = { temp = false }, label = { Text("Rain") })
+    }
+    val order = v.weights.map { it.source }
+    when (view) {
+        PastView.HOURS -> PastHours(v.past, order, zone, temp)
+        PastView.DAYS -> PeriodTable(v.days, order, temp, empty = "Days show here once a forecast hour has passed and been checked.") {
+            it.format(java.time.format.DateTimeFormatter.ofPattern("EEE d", java.util.Locale.ENGLISH))
+        }
+        PastView.WEEKS -> PeriodTable(v.weeks, order, temp, empty = "Weeks before the last 7 days build up here over time.") {
+            "w/c " + it.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.ENGLISH))
+        }
+    }
+    Text(
+        if (temp) "Green: within 1° on average; amber: within 2.5°; red: further out. A + means it ran warm, − cold."
+        else "Cells show the share of hours where rain or no rain was called right (green 85%+, red under 65%).",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun PastHours(past: List<PastHour>, order: List<String>, zone: java.time.ZoneId, temp: Boolean) {
+    val byDay = past.groupBy { java.time.Instant.ofEpochSecond(it.time).atZone(zone).toLocalDate() }
+    val dates = byDay.keys.sortedDescending()
+    if (dates.isEmpty()) {
+        Text("Nothing checked yet. A forecast can only be checked once its hour has passed and the actual weather is in.",
+            style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    var i by remember(dates.size) { mutableStateOf(0) }
+    val date = dates[i.coerceIn(0, dates.lastIndex)]
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = { i++ }, enabled = i < dates.lastIndex) { Text("‹ Earlier") }
+        Text(date.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", java.util.Locale.ENGLISH)),
+            Modifier.weight(1f), textAlign = TextAlign.Center, fontWeight = FontWeight.SemiBold)
+        TextButton(onClick = { i-- }, enabled = i > 0) { Text("Later ›") }
+    }
+    val hours = byDay.getValue(date).sortedBy { it.time }
+    val shown = order.filter { src -> hours.any { src in it.forecasts } } + hours.flatMap { it.forecasts.keys }.distinct().filter { it !in order }
+    Row(Modifier.horizontalScroll(rememberScrollState())) {
+        Column {
+            Cell("", 120, bold = true)
+            Cell("Actual", 120, bold = true)
+            shown.forEach { Cell(Sources.label(it), 120) }
+        }
+        hours.forEach { h ->
+            Column {
+                Cell(Format.hour(h.time, zone).replace(" ", "").lowercase(), 48, bold = true, center = true)
+                if (temp) Cell(Format.temp(h.temperature), 48, bold = true, center = true)
+                else Cell(h.precipitation?.let { if (it >= Sources.WET_MM) String.format(java.util.Locale.US, "%.1f", it) else "dry" } ?: "–", 48, bold = true, center = true)
+                shown.forEach { src ->
+                    val f = h.forecasts[src]
+                    if (temp) {
+                        val ft = f?.temperature; val at = h.temperature
+                        val miss = if (ft != null && at != null) kotlin.math.abs(ft - at) else null
+                        ShadedCell(Format.temp(f?.temperature), tempShade(miss))
+                    } else {
+                        val fp = f?.precipitation; val ap = h.precipitation
+                        val right = if (fp != null && ap != null) (fp >= Sources.WET_MM) == (ap >= Sources.WET_MM) else null
+                        ShadedCell(f?.rainChance?.let { "${it.roundToInt()}%" } ?: "–", rainShade(right?.let { if (it) 1.0 else 0.0 }))
+                    }
+                }
+            }
+        }
+    }
+    Text(if (temp) "Each source's forecast temperature, shaded by how far off it was."
+        else "Actual row: rain in mm or dry. Source rows: their rain chance, green when rain or no rain was right.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun PeriodTable(rows: List<DayScore>, order: List<String>, temp: Boolean, empty: String, label: (java.time.LocalDate) -> String) {
+    if (rows.isEmpty()) { Text(empty, style = MaterialTheme.typography.bodySmall); return }
+    val periods = rows.map { it.date }.distinct().sortedDescending()
+    val bySource = rows.groupBy { it.source }.mapValues { (_, v) -> v.associateBy { it.date } }
+    val shown = order.filter { it in bySource } + bySource.keys.filter { it !in order }
+    Row(Modifier.horizontalScroll(rememberScrollState())) {
+        Column {
+            Cell("", 120, bold = true)
+            shown.forEach { Cell(Sources.label(it), 120) }
+        }
+        periods.forEach { d ->
+            Column {
+                Cell(label(d), 64, bold = true, center = true)
+                shown.forEach { src ->
+                    val sc = bySource[src]?.get(d)
+                    if (temp) {
+                        val bias = sc?.tempBias
+                        val text = sc?.tempMae?.let { mae ->
+                            val sign = bias?.let { if (it > 0.3) "+" else if (it < -0.3) "−" else "" } ?: ""
+                            String.format(java.util.Locale.US, "%s%.1f°", sign, mae)
+                        } ?: "–"
+                        ShadedCell(text, tempShade(sc?.tempMae), 64)
+                    } else {
+                        ShadedCell(sc?.wetDryRight?.let { "${(it * 100).roundToInt()}%" } ?: "–", rainShade(sc?.wetDryRight), 64)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShadedCell(text: String, bg: Color, width: Int = 48) {
+    Box(Modifier.width(width.dp).height(30.dp).padding(1.dp).background(bg), contentAlignment = Alignment.Center) {
+        Text(text, style = MaterialTheme.typography.bodySmall, maxLines = 1)
     }
 }
