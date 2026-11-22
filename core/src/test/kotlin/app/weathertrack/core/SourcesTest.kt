@@ -36,6 +36,16 @@ class SourcesTest {
         val h = Sources.parseMetno(body).single()
         assertEquals(java.time.OffsetDateTime.parse("2026-11-22T06:00:00Z").toEpochSecond(), h.time)
         assertEquals(90.0, h.rainChance!!, 0.01)
+        // 18.5° was measured at 05:00, so the 06:00 row has no temperature of its own.
+        assertEquals(null, h.temperature)
+    }
+
+    @Test fun metnoTemperatureStaysAtItsOwnTime() {
+        val body = """{"properties":{"timeseries":[
+            {"time":"2026-11-22T05:00:00Z","data":{"instant":{"details":{"air_temperature":12}},"next_1_hours":{"details":{"precipitation_amount":0}}}},
+            {"time":"2026-11-22T06:00:00Z","data":{"instant":{"details":{"air_temperature":15}},"next_1_hours":{"details":{"precipitation_amount":0}}}}]}}"""
+        val h = Sources.parseMetno(body).first { it.time == java.time.OffsetDateTime.parse("2026-11-22T06:00:00Z").toEpochSecond() }
+        assertEquals(15.0, h.temperature!!, 0.01)
     }
 
     @Test fun scoresWeightsAndBlend() {

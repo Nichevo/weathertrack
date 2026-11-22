@@ -52,6 +52,7 @@ import app.weathertrack.data.db.PlaceEntity
 import app.weathertrack.ui.Format
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -69,14 +70,24 @@ class SourcesViewModel(
 
     init { viewModelScope.launch { places.selectedId.collect { load(force = false) } } }
 
+    private var job: Job? = null
+    private var loads = 0
+
+    /** Loads the selected place, cancelling any earlier load so an old place can't overwrite a newer one. */
     fun load(force: Boolean) {
-        viewModelScope.launch {
+        job?.cancel()
+        val mine = ++loads
+        job = viewModelScope.launch {
             val place = places.selected() ?: return@launch
-            _state.update { it.copy(place = place, loading = true) }
-            runCatching { sources.refresh(place, weather.cachedForecast(place)?.forecast, if (force) "app" else "sources") }
-            val from = System.currentTimeMillis() / 1000 - 60 * 86400L
-            val view = runCatching { sources.view(place.id, check.observed(place.id, from), check.reports(place.id, from)) }.getOrNull()
-            _state.update { it.copy(view = view, loading = false) }
+            _state.update { it.copy(place = place, view = if (it.place?.id == place.id) it.view else null, loading = true) }
+            try {
+                runCatching { sources.refresh(place, weather.cachedForecast(place), if (force) "manual" else "sources", force) }
+                val from = System.currentTimeMillis() / 1000 - 60 * 86400L
+                val view = runCatching { sources.view(place.id, check.observed(place.id, from), check.reports(place.id, from)) }.getOrNull()
+                if (mine == loads) _state.update { it.copy(view = view) }
+            } finally {
+                if (mine == loads) _state.update { it.copy(loading = false) }
+            }
         }
     }
 
