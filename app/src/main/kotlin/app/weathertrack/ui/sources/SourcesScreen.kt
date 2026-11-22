@@ -317,11 +317,12 @@ private fun PastHours(past: List<PastHour>, order: List<String>, zone: java.time
                 shown.forEach { src ->
                     val f = h.forecasts[src]
                     if (temp) {
-                        val miss = if (f?.temperature != null && h.temperature != null) kotlin.math.abs(f.temperature - h.temperature) else null
+                        val ft = f?.temperature; val at = h.temperature
+                        val miss = if (ft != null && at != null) kotlin.math.abs(ft - at) else null
                         ShadedCell(Format.temp(f?.temperature), tempShade(miss))
                     } else {
-                        val right = if (f?.precipitation != null && h.precipitation != null)
-                            (f.precipitation >= Sources.WET_MM) == (h.precipitation >= Sources.WET_MM) else null
+                        val fp = f?.precipitation; val ap = h.precipitation
+                        val right = if (fp != null && ap != null) (fp >= Sources.WET_MM) == (ap >= Sources.WET_MM) else null
                         ShadedCell(f?.rainChance?.let { "${it.roundToInt()}%" } ?: "–", rainShade(right?.let { if (it) 1.0 else 0.0 }))
                     }
                 }
@@ -350,8 +351,9 @@ private fun PeriodTable(rows: List<DayScore>, order: List<String>, temp: Boolean
                 shown.forEach { src ->
                     val sc = bySource[src]?.get(d)
                     if (temp) {
+                        val bias = sc?.tempBias
                         val text = sc?.tempMae?.let { mae ->
-                            val sign = sc.tempBias?.let { if (it > 0.3) "+" else if (it < -0.3) "−" else "" } ?: ""
+                            val sign = bias?.let { if (it > 0.3) "+" else if (it < -0.3) "−" else "" } ?: ""
                             String.format(java.util.Locale.US, "%s%.1f°", sign, mae)
                         } ?: "–"
                         ShadedCell(text, tempShade(sc?.tempMae), 64)
