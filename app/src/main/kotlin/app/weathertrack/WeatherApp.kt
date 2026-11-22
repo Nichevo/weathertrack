@@ -54,7 +54,7 @@ class AppContainer(app: Application) {
     val tiles = TileStore(app)
     val rainMap = RainMapRepository(http, database.rawPullDao())
     val extras = ExtrasRepository(http, database.rawPullDao())
-    val sources = SourceRepository(http, database.rawPullDao(), database.sourceHourDao())
+    val sources = SourceRepository(http, database.rawPullDao(), database.sourceHourDao(), database.sourceDayDao())
     val radarSpot = RadarSpotChecker(rainMap, tiles)
     val settings = SettingsRepository(app)
 }

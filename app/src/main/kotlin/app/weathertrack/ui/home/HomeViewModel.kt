@@ -154,7 +154,7 @@ class HomeViewModel(
         runCatching { sources.refresh(place, weather.cachedForecast(place), "app") }
         val view = runCatching {
             val from = now - 60 * 86400L
-            sources.view(place.id, forecastCheck.observed(place.id, from), forecastCheck.reports(place.id, from))
+            sources.view(place.id, Format.zone(place.timezone), forecastCheck.observed(place.id, from), forecastCheck.reports(place.id, from))
         }.getOrNull()
         if (_state.value.place?.id == place.id) _state.update { it.copy(sources = view) }
     }

@@ -4,6 +4,7 @@ import app.weathertrack.core.accuracy.ObsHour
 import app.weathertrack.core.accuracy.RainReport
 import app.weathertrack.core.sources.IssuedSourceHour
 import app.weathertrack.core.sources.SourceHour
+import app.weathertrack.core.sources.DayScore
 import app.weathertrack.core.sources.Sources
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -46,6 +47,39 @@ class SourcesTest {
             {"time":"2026-11-22T06:00:00Z","data":{"instant":{"details":{"air_temperature":15}},"next_1_hours":{"details":{"precipitation_amount":0}}}}]}}"""
         val h = Sources.parseMetno(body).first { it.time == java.time.OffsetDateTime.parse("2026-11-22T06:00:00Z").toEpochSecond() }
         assertEquals(15.0, h.temperature!!, 0.01)
+    }
+
+    @Test fun pastHoursAndDaily() {
+        val zone = java.time.ZoneOffset.UTC
+        val t = java.time.OffsetDateTime.parse("2026-11-22T10:00:00Z").toEpochSecond()
+        val obs = listOf(ObsHour(t, 15.0, null, 0.0, null), ObsHour(t + 3600, 16.0, null, 1.0, null))
+        val issued = listOf(
+            IssuedSourceHour("a", t - 6 * 3600, t, 17.0, 0.0, 5.0),
+            IssuedSourceHour("a", t - 2 * 3600, t, 16.0, 0.0, 5.0), // later forecast wins
+            IssuedSourceHour("a", t - 600, t, 99.0, 0.0, 5.0), // under an hour ahead: ignored
+            IssuedSourceHour("a", t - 2 * 3600, t + 3600, 16.0, 0.0, 5.0),
+            IssuedSourceHour("b", t - 2 * 3600, t, 15.0, 2.0, 90.0),
+            IssuedSourceHour("b", t - 2 * 3600, t + 7200, 15.0, 2.0, 90.0), // no actual yet
+        )
+        val past = Sources.pastHours(issued, obs)
+        assertEquals(listOf(t + 3600, t), past.map { it.time })
+        assertEquals(16.0, past.last().forecasts.getValue("a").temperature!!, 0.01)
+        val days = Sources.daily(past, zone).associateBy { it.source }
+        assertEquals(2, days.getValue("a").hours)
+        assertEquals(0.5, days.getValue("a").tempMae!!, 0.01) // misses of 1 and 0
+        assertEquals(0.5, days.getValue("a").wetDryRight!!, 0.01) // dry right, missed the wet hour
+        assertEquals(0.0, days.getValue("b").wetDryRight!!, 0.01)
+        assertEquals(0.5, days.getValue("a").tempBias!!, 0.01) // ran warm by 1, then spot on
+
+        // Two days in the same week add up; a day in the next week stays apart.
+        val d = java.time.LocalDate.parse("2026-11-17") // a Tuesday
+        val one = DayScore(d, "a", 10, 10.0, 5.0, 10, 8, 10)
+        val week = Sources.weekly(listOf(one, one.copy(date = d.plusDays(1)), one.copy(date = d.plusDays(6))))
+        assertEquals(2, week.size)
+        assertEquals(java.time.LocalDate.parse("2026-11-23"), week[0].date)
+        assertEquals(java.time.LocalDate.parse("2026-11-16"), week[1].date)
+        assertEquals(20, week[1].hours)
+        assertEquals(0.8, week[1].wetDryRight!!, 0.001)
     }
 
     @Test fun scoresWeightsAndBlend() {

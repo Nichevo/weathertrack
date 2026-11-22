@@ -5,7 +5,7 @@ import pathlib
 import re
 import sys
 
-MIGRATED_TABLES = ["observed_day", "climate_day", "energy_day", "observed_hour", "previous_run_hour", "user_report", "source_hour"]
+MIGRATED_TABLES = ["observed_day", "climate_day", "energy_day", "observed_hour", "previous_run_hour", "user_report", "source_hour", "source_day"]
 
 root = pathlib.Path(__file__).resolve().parents[2]
 impls = list((root / "app/build/generated/ksp").rglob("AppDatabase_Impl.*"))
