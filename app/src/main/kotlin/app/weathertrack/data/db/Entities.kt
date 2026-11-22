@@ -124,3 +124,37 @@ data class ObservedDayEntity(
     @androidx.room.ColumnInfo(name = "sunshine_duration") val sunshineDuration: Double?,
     @androidx.room.ColumnInfo(name = "weather_code") val weatherCode: Int?,
 )
+
+/** Daily weather for the Home view (degree days, sun, humidity), as received. Key: (place, date). */
+@Entity(
+    tableName = "climate_day",
+    primaryKeys = ["place_id", "date"],
+    indices = [Index("pull_id")],
+)
+data class ClimateDayEntity(
+    @androidx.room.ColumnInfo(name = "place_id") val placeId: Long,
+    /** Local date at the place, yyyy-MM-dd. */
+    val date: String,
+    @androidx.room.ColumnInfo(name = "pull_id") val pullId: Long,
+    @androidx.room.ColumnInfo(name = "fetched_at") val fetchedAt: Long,
+    @androidx.room.ColumnInfo(name = "temperature_mean") val temperatureMean: Double?,
+    @androidx.room.ColumnInfo(name = "temperature_max") val temperatureMax: Double?,
+    @androidx.room.ColumnInfo(name = "temperature_min") val temperatureMin: Double?,
+    @androidx.room.ColumnInfo(name = "relative_humidity_mean") val relativeHumidityMean: Double?,
+    @androidx.room.ColumnInfo(name = "dew_point_mean") val dewPointMean: Double?,
+    /** MJ/m² for the day. */
+    @androidx.room.ColumnInfo(name = "shortwave_radiation_sum") val shortwaveRadiationSum: Double?,
+    /** Seconds. */
+    @androidx.room.ColumnInfo(name = "sunshine_duration") val sunshineDuration: Double?,
+    @androidx.room.ColumnInfo(name = "cloud_cover_mean") val cloudCoverMean: Double?,
+)
+
+/** Household power use per day, imported from a CSV. Not tied to a place. */
+@Entity(tableName = "energy_day")
+data class EnergyDayEntity(
+    @PrimaryKey val date: String,
+    val kwh: Double,
+    /** Name of the file it came from. */
+    val source: String?,
+    @androidx.room.ColumnInfo(name = "imported_at") val importedAt: Long,
+)

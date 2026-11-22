@@ -26,5 +26,14 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+    /** v4: daily climate for the Home view, and imported household power use. */
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `climate_day` (`place_id` INTEGER NOT NULL, `date` TEXT NOT NULL, `pull_id` INTEGER NOT NULL, `fetched_at` INTEGER NOT NULL, `temperature_mean` REAL, `temperature_max` REAL, `temperature_min` REAL, `relative_humidity_mean` REAL, `dew_point_mean` REAL, `shortwave_radiation_sum` REAL, `sunshine_duration` REAL, `cloud_cover_mean` REAL, PRIMARY KEY(`place_id`, `date`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_climate_day_pull_id` ON `climate_day` (`pull_id`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `energy_day` (`date` TEXT NOT NULL, `kwh` REAL NOT NULL, `source` TEXT, `imported_at` INTEGER NOT NULL, PRIMARY KEY(`date`))")
+        }
+    }
+
+    val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 }

@@ -49,6 +49,28 @@ object OpenMeteoUrls {
             "&daily=${ARCHIVE_DAILY_VARS.joinToString(",")}" +
             "&timezone=auto&wind_speed_unit=kmh"
 
+    /** Daily variables for the Home view (heating, cooling, sun and humidity). */
+    val CLIMATE_DAILY_VARS = listOf(
+        "temperature_2m_mean", "temperature_2m_max", "temperature_2m_min",
+        "relative_humidity_2m_mean", "dew_point_2m_mean", "shortwave_radiation_sum",
+        "sunshine_duration", "cloud_cover_mean",
+    )
+
+    /** Fallback if the archive rejects the newer daily means (humidity, dew point, cloud). */
+    val CLIMATE_SAFE_DAILY_VARS = listOf(
+        "temperature_2m_mean", "temperature_2m_max", "temperature_2m_min", "shortwave_radiation_sum", "sunshine_duration",
+    )
+
+    fun archiveClimate(
+        latitude: Double, longitude: Double, startDate: String, endDate: String,
+        vars: List<String> = CLIMATE_DAILY_VARS,
+    ): String =
+        ARCHIVE_BASE +
+            "?latitude=${coord(latitude)}&longitude=${coord(longitude)}" +
+            "&start_date=$startDate&end_date=$endDate" +
+            "&daily=${vars.joinToString(",")}" +
+            "&timezone=auto"
+
     fun geocode(query: String, count: Int = 10): String =
         GEOCODING_BASE + "?name=" + java.net.URLEncoder.encode(query, "UTF-8") +
             "&count=$count&language=en&format=json"
