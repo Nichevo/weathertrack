@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         ObservedHourEntity::class, PreviousRunHourEntity::class, UserReportEntity::class,
         SourceHourEntity::class, SourceDayEntity::class, FeelingReportEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

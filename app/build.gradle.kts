@@ -7,6 +7,8 @@ plugins {
 
 // Every CI build gets a higher versionCode, so a new APK always installs as an upgrade.
 val ciBuildNumber = System.getenv("BUILD_NUMBER")?.toIntOrNull() ?: 1
+// The release line. Bump it with each release in app/src/main/assets/CHANGELOG.md ("## 1.0 · ...").
+val releaseLine = "1.0"
 
 // Release signing key comes from CI secrets (never committed). See docs/SIGNING.md.
 val keystorePath: String? = System.getenv("WT_KEYSTORE_PATH")
@@ -21,7 +23,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = ciBuildNumber
-        versionName = "0.1.$ciBuildNumber"
+        versionName = "$releaseLine.$ciBuildNumber"
     }
 
     signingConfigs {

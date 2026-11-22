@@ -64,7 +64,7 @@ jobs:
 
       - name: Name the APK
         run: |
-          VERSION="0.1.${{ github.run_number }}"
+          VERSION=$(python3 -c "import json; print(json.load(open('app/build/outputs/apk/release/output-metadata.json'))['elements'][0]['versionName'])")
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           cp app/build/outputs/apk/release/app-release.apk "weathertrack-$VERSION.apk"
 

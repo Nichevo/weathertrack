@@ -20,10 +20,20 @@ data class Source(val id: String, val label: String, val kind: Kind) {
 }
 
 /** One hour from one source. [rainChance] is 0..100; for single-run models it is derived from the rain amount. */
-data class SourceHour(val source: String, val time: Long, val temperature: Double?, val precipitation: Double?, val rainChance: Double?)
+data class SourceHour(
+    val source: String, val time: Long, val temperature: Double?, val precipitation: Double?, val rainChance: Double?,
+    /** km/h. */
+    val windSpeed: Double? = null,
+    /** 0..100. */
+    val cloudCover: Double? = null,
+)
 
 /** A stored source hour with when it was issued, for scoring. */
-data class IssuedSourceHour(val source: String, val issuedAt: Long, val time: Long, val temperature: Double?, val precipitation: Double?, val rainChance: Double?)
+data class IssuedSourceHour(
+    val source: String, val issuedAt: Long, val time: Long, val temperature: Double?, val precipitation: Double?, val rainChance: Double?,
+    val windSpeed: Double? = null,
+    val cloudCover: Double? = null,
+)
 
 /** One past hour: what happened, and each source's forecast for it. */
 data class PastHour(val time: Long, val temperature: Double?, val precipitation: Double?, val forecasts: Map<String, IssuedSourceHour>)
@@ -72,6 +82,11 @@ data class SourceScore(
     /** Rain-chance error on the wet hours and on the dry hours separately (your reports included). */
     val brierWet: Double? = null,
     val brierDry: Double? = null,
+    /** Mean miss on wind speed (km/h) and cloud cover (percentage points), and hours checked. */
+    val windMae: Double? = null,
+    val windHours: Int = 0,
+    val cloudMae: Double? = null,
+    val cloudHours: Int = 0,
 ) {
     /**
      * Rain-chance error with wet and dry hours counted equally. Most hours are dry, and a source that
@@ -86,7 +101,7 @@ data class SourceScore(
     val rainEvidence: Double get() = wetHours + reportsTotal + 0.1 * (rainHours - wetHours)
 }
 
-data class SourceWeight(val source: String, val temp: Double, val rain: Double)
+data class SourceWeight(val source: String, val temp: Double, val rain: Double, val wind: Double = 0.0, val cloud: Double = 0.0)
 
 data class BlendHour(
     val time: Long,
@@ -96,6 +111,8 @@ data class BlendHour(
     val chanceLow: Double?,
     val chanceHigh: Double?,
     val sources: Int,
+    val windSpeed: Double? = null,
+    val cloudCover: Double? = null,
 )
 
 object Sources {
@@ -148,14 +165,17 @@ object Sources {
         if ((root["error"] as? JsonPrimitive)?.contentOrNull == "true") error((root["reason"] as? JsonPrimitive)?.contentOrNull ?: "API error")
     }
 
-    fun modelsUrl(lat: Double, lon: Double, models: List<Source>): String =
+    /** [windCloud] adds wind speed and cloud cover; without it the request is the older, safest set. */
+    fun modelsUrl(lat: Double, lon: Double, models: List<Source>, windCloud: Boolean = true): String =
         "https://api.open-meteo.com/v1/forecast?latitude=${c(lat)}&longitude=${c(lon)}" +
-            "&hourly=temperature_2m,precipitation,precipitation_probability&models=${models.joinToString(",") { it.id }}" +
-            "&forecast_days=3&past_hours=1&timezone=GMT&timeformat=unixtime"
+            "&hourly=temperature_2m,precipitation,precipitation_probability${if (windCloud) ",wind_speed_10m,cloud_cover" else ""}" +
+            "&models=${models.joinToString(",") { it.id }}" +
+            "&forecast_days=3&past_hours=1&timezone=GMT&timeformat=unixtime&wind_speed_unit=kmh"
 
-    fun ensembleUrl(lat: Double, lon: Double, model: Source): String =
+    fun ensembleUrl(lat: Double, lon: Double, model: Source, windCloud: Boolean = true): String =
         "https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${c(lat)}&longitude=${c(lon)}" +
-            "&hourly=temperature_2m,precipitation&models=${model.id}&forecast_days=3&timezone=GMT&timeformat=unixtime"
+            "&hourly=temperature_2m,precipitation${if (windCloud) ",wind_speed_10m,cloud_cover" else ""}" +
+            "&models=${model.id}&forecast_days=3&timezone=GMT&timeformat=unixtime&wind_speed_unit=kmh"
 
     fun metnoUrl(lat: Double, lon: Double): String =
         "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${String.format(Locale.US, "%.3f", lat)}&lon=${String.format(Locale.US, "%.3f", lon)}"
@@ -172,13 +192,15 @@ object Sources {
             val t = h.arr("temperature_2m_${m.id}") ?: (if (models.size == 1) h.arr("temperature_2m") else null)
             val p = h.arr("precipitation_${m.id}") ?: (if (models.size == 1) h.arr("precipitation") else null)
             val pp = h.arr("precipitation_probability_${m.id}") ?: (if (models.size == 1) h.arr("precipitation_probability") else null)
+            val ws = h.arr("wind_speed_10m_${m.id}") ?: (if (models.size == 1) h.arr("wind_speed_10m") else null)
+            val cc = h.arr("cloud_cover_${m.id}") ?: (if (models.size == 1) h.arr("cloud_cover") else null)
             if (t == null && p == null) return@flatMap emptyList()
             (0 until times.size).mapNotNull { i ->
                 val time = times.l(i) ?: return@mapNotNull null
                 val temp = t?.d(i)
                 val mm = p?.d(i)
                 if (temp == null && mm == null) return@mapNotNull null
-                SourceHour(key(m), time, temp, mm, pp?.d(i) ?: chanceFromMm(mm))
+                SourceHour(key(m), time, temp, mm, pp?.d(i) ?: chanceFromMm(mm), ws?.d(i), cc?.d(i))
             }
         }
     }
@@ -191,6 +213,8 @@ object Sources {
         val times = h.arr("time") ?: return emptyList()
         val rain = h.entries.filter { it.key == "precipitation" || it.key.startsWith("precipitation_member") }.mapNotNull { it.value as? JsonArray }
         val temp = h.entries.filter { it.key == "temperature_2m" || it.key.startsWith("temperature_2m_member") }.mapNotNull { it.value as? JsonArray }
+        val wind = h.entries.filter { it.key == "wind_speed_10m" || it.key.startsWith("wind_speed_10m_member") }.mapNotNull { it.value as? JsonArray }
+        val cloud = h.entries.filter { it.key == "cloud_cover" || it.key.startsWith("cloud_cover_member") }.mapNotNull { it.value as? JsonArray }
         if (rain.isEmpty()) return emptyList()
         return (0 until times.size).mapNotNull { i ->
             val time = times.l(i) ?: return@mapNotNull null
@@ -198,7 +222,9 @@ object Sources {
             if (mm.isEmpty()) return@mapNotNull null
             val temps = temp.mapNotNull { it.d(i) }
             SourceHour(key(model), time, temps.takeIf { it.isNotEmpty() }?.average(), mm.sorted()[mm.size / 2],
-                100.0 * mm.count { it >= WET_MM } / mm.size)
+                100.0 * mm.count { it >= WET_MM } / mm.size,
+                wind.mapNotNull { it.d(i) }.takeIf { it.isNotEmpty() }?.average(),
+                cloud.mapNotNull { it.d(i) }.takeIf { it.isNotEmpty() }?.average())
         }
     }
 
@@ -207,13 +233,18 @@ object Sources {
         val root = json.parseToJsonElement(body).jsonObject
         val series = ((root["properties"] as? JsonObject)?.get("timeseries") as? JsonArray) ?: return emptyList()
         val temps = HashMap<Long, Double>()
+        val winds = HashMap<Long, Double>()
+        val clouds = HashMap<Long, Double>()
         val rain = LinkedHashMap<Long, Pair<Double?, Double?>>()
         series.forEach { e ->
             val o = e as? JsonObject ?: return@forEach
             val time = (o["time"] as? JsonPrimitive)?.contentOrNull?.let { runCatching { OffsetDateTime.parse(it).toEpochSecond() }.getOrNull() } ?: return@forEach
             val data = o["data"] as? JsonObject ?: return@forEach
-            (((data["instant"] as? JsonObject)?.get("details") as? JsonObject)?.get("air_temperature") as? JsonPrimitive)?.doubleOrNull
-                ?.let { temps[time] = it }
+            val instant = (data["instant"] as? JsonObject)?.get("details") as? JsonObject
+            (instant?.get("air_temperature") as? JsonPrimitive)?.doubleOrNull?.let { temps[time] = it }
+            // MET gives wind in m/s.
+            (instant?.get("wind_speed") as? JsonPrimitive)?.doubleOrNull?.let { winds[time] = it * 3.6 }
+            (instant?.get("cloud_area_fraction") as? JsonPrimitive)?.doubleOrNull?.let { clouds[time] = it }
             val next = ((data["next_1_hours"] as? JsonObject)?.get("details") as? JsonObject) ?: return@forEach
             val mm = (next["precipitation_amount"] as? JsonPrimitive)?.doubleOrNull
             val prob = (next["probability_of_precipitation"] as? JsonPrimitive)?.doubleOrNull
@@ -221,7 +252,7 @@ object Sources {
             rain[time + 3600] = mm to (prob ?: chanceFromMm(mm))
         }
         // Temperature is an instant reading, so it stays at its own time.
-        return rain.map { (t, r) -> SourceHour(METNO.id, t, temps[t], r.first, r.second) }
+        return rain.map { (t, r) -> SourceHour(METNO.id, t, temps[t], r.first, r.second, winds[t], clouds[t]) }
     }
 
     /**
@@ -239,10 +270,13 @@ object Sources {
                 .groupBy { it.time }.mapValues { (_, v) -> v.maxBy { it.issuedAt } }
             var n = 0; var tErr = 0.0; var tN = 0; var right = 0; var rN = 0; var brier = 0.0; var bN = 0
             var wetB = 0.0; var wetN = 0; var dryB = 0.0; var dryN = 0; var obsWet = 0
+            var wErr = 0.0; var wN = 0; var cErr = 0.0; var cN = 0
             for ((time, f) in best) {
                 val a = actual[time] ?: continue
                 n++
                 if (f.temperature != null && a.temperature != null) { tErr += abs(f.temperature - a.temperature); tN++ }
+                if (f.windSpeed != null && a.windSpeed != null) { wErr += abs(f.windSpeed - a.windSpeed); wN++ }
+                if (f.cloudCover != null && a.cloudCover != null) { cErr += abs(f.cloudCover - a.cloudCover); cN++ }
                 val wet = a.precipitation?.let { it >= WET_MM } ?: continue
                 f.precipitation?.let { rN++; if ((it >= WET_MM) == wet) right++ }
                 f.rainChance?.let {
@@ -264,7 +298,9 @@ object Sources {
             SourceScore(src, n, if (tN > 0) tErr / tN else null, if (rN > 0) right.toDouble() / rN else null,
                 if (bN > 0) brier / bN else null, repRight, repTotal,
                 tempHours = tN, rainHours = bN, wetHours = obsWet,
-                brierWet = if (wetN > 0) wetB / wetN else null, brierDry = if (dryN > 0) dryB / dryN else null)
+                brierWet = if (wetN > 0) wetB / wetN else null, brierDry = if (dryN > 0) dryB / dryN else null,
+                windMae = if (wN > 0) wErr / wN else null, windHours = wN,
+                cloudMae = if (cN > 0) cErr / cN else null, cloudHours = cN)
         }.sortedBy { it.rainError ?: 1.0 }
     }
 
@@ -323,16 +359,28 @@ object Sources {
             val known = m.values.filter { it > 0 }; val fill = if (known.isEmpty()) 1.0 else known.average(); m.mapValues { if (it.value > 0) it.value else fill } })
         val rainSkill = norm(sources.associateWith { s -> byId[s]?.rainError?.let { 1 / (it + 0.02) } ?: 0.0 }.let { m ->
             val known = m.values.filter { it > 0 }; val fill = if (known.isEmpty()) 1.0 else known.average(); m.mapValues { if (it.value > 0) it.value else fill } })
+        // Wind (km/h) and cloud (points) on their own records, like temperature: inverse squared miss.
+        val windSkill = norm(sources.associateWith { s -> byId[s]?.windMae?.let { 1 / (it * it + 1.0) } ?: 0.0 }.let { m ->
+            val known = m.values.filter { it > 0 }; val fill = if (known.isEmpty()) 1.0 else known.average(); m.mapValues { if (it.value > 0) it.value else fill } })
+        val cloudSkill = norm(sources.associateWith { s -> byId[s]?.cloudMae?.let { 1 / (it * it + 25.0) } ?: 0.0 }.let { m ->
+            val known = m.values.filter { it > 0 }; val fill = if (known.isEmpty()) 1.0 else known.average(); m.mapValues { if (it.value > 0) it.value else fill } })
         val raw = sources.map { s ->
             val sc = byId[s]
             val tn = (sc?.tempHours ?: 0).toDouble()
             val kt = tn / (tn + PRIOR_HOURS)
             val re = sc?.rainEvidence ?: 0.0
             val kr = re / (re + PRIOR_RAIN_EVENTS)
-            SourceWeight(s, kt * tempSkill.getValue(s) + (1 - kt) * equal, kr * rainSkill.getValue(s) + (1 - kr) * equal)
+            val wn = (sc?.windHours ?: 0).toDouble()
+            val kw = wn / (wn + PRIOR_HOURS)
+            val cn = (sc?.cloudHours ?: 0).toDouble()
+            val kc = cn / (cn + PRIOR_HOURS)
+            SourceWeight(s, kt * tempSkill.getValue(s) + (1 - kt) * equal, kr * rainSkill.getValue(s) + (1 - kr) * equal,
+                kw * windSkill.getValue(s) + (1 - kw) * equal, kc * cloudSkill.getValue(s) + (1 - kc) * equal)
         }
         val tSum = raw.sumOf { it.temp }; val rSum = raw.sumOf { it.rain }
-        return raw.map { it.copy(temp = it.temp / tSum, rain = it.rain / rSum) }.sortedByDescending { it.rain }
+        val wSum = raw.sumOf { it.wind }; val cSum = raw.sumOf { it.cloud }
+        return raw.map { it.copy(temp = it.temp / tSum, rain = it.rain / rSum, wind = it.wind / wSum, cloud = it.cloud / cSum) }
+            .sortedByDescending { it.rain }
     }
 
     /** Weighted blend of the latest forecast from each source, hour by hour. */
@@ -343,11 +391,17 @@ object Sources {
             val r = rows.filter { it.rainChance != null && w[it.source] != null }
             val tw = t.sumOf { w.getValue(it.source).temp }
             val rw = r.sumOf { w.getValue(it.source).rain }
+            val ws = rows.filter { it.windSpeed != null && w[it.source] != null }
+            val cs = rows.filter { it.cloudCover != null && w[it.source] != null }
+            val ww = ws.sumOf { w.getValue(it.source).wind }
+            val cw = cs.sumOf { w.getValue(it.source).cloud }
             BlendHour(
                 time,
                 if (tw > 0) t.sumOf { it.temperature!! * w.getValue(it.source).temp } / tw else null,
                 if (rw > 0) r.sumOf { it.rainChance!! * w.getValue(it.source).rain } / rw else null,
                 r.minOfOrNull { it.rainChance!! }, r.maxOfOrNull { it.rainChance!! }, rows.size,
+                if (ww > 0) ws.sumOf { it.windSpeed!! * w.getValue(it.source).wind } / ww else null,
+                if (cw > 0) cs.sumOf { it.cloudCover!! * w.getValue(it.source).cloud } / cw else null,
             )
         }
     }

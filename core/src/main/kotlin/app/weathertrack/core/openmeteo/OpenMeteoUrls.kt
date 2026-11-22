@@ -92,16 +92,23 @@ object OpenMeteoUrls {
         FORECAST_BASE +
             "?latitude=${coord(latitude)}&longitude=${coord(longitude)}" +
             "&hourly=temperature_2m,apparent_temperature,precipitation,weather_code,wind_gusts_10m,relative_humidity_2m,cloud_cover" +
+            ",wind_speed_10m,wind_direction_10m,cloud_cover_low,cloud_cover_mid,cloud_cover_high,shortwave_radiation,is_day" +
             "&past_days=$pastDays&forecast_days=1&timezone=auto&timeformat=unixtime&wind_speed_unit=kmh"
 
     /** What earlier model runs forecast for the last [pastDays] days, at each lead in [PREVIOUS_RUN_LEADS]. */
-    fun previousRuns(latitude: Double, longitude: Double, pastDays: Int): String {
+    fun previousRuns(latitude: Double, longitude: Double, pastDays: Int, windCloud: Boolean = true): String {
         fun v(name: String) = PREVIOUS_RUN_LEADS.joinToString(",") { if (it == 0) name else "${name}_previous_day$it" }
+        val vars = (listOf("temperature_2m", "precipitation") + if (windCloud) RUN_WIND_CLOUD_VARS else emptyList())
         return PREVIOUS_RUNS_BASE +
             "?latitude=${coord(latitude)}&longitude=${coord(longitude)}" +
-            "&hourly=${v("temperature_2m")},${v("precipitation")}" +
-            "&past_days=$pastDays&forecast_days=1&timezone=auto&timeformat=unixtime"
+            "&hourly=${vars.joinToString(",") { v(it) }}" +
+            "&past_days=$pastDays&forecast_days=1&timezone=auto&timeformat=unixtime&wind_speed_unit=kmh"
     }
+
+    /** Wind and cloud variables fetched from Previous Runs for Forecast check. */
+    val RUN_WIND_CLOUD_VARS = listOf(
+        "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m", "cloud_cover", "cloud_cover_low", "cloud_cover_mid",
+    )
 
     const val MARINE_BASE = "https://marine-api.open-meteo.com/v1/marine"
 

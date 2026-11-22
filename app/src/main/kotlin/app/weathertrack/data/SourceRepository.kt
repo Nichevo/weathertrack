@@ -65,18 +65,21 @@ class SourceRepository(
             if (main != null) {
                 val issued = main.fetchedAtMs / 1000
                 if (issued > (dao.lastIssued(place.id, Sources.MAIN.id) ?: 0L)) jobs += async {
-                    issued to main.forecast.hourly.map { SourceHour(Sources.MAIN.id, it.time, it.temperature, it.precipitation, it.precipitationProbability) }
+                    issued to main.forecast.hourly.map {
+                        SourceHour(Sources.MAIN.id, it.time, it.temperature, it.precipitation, it.precipitationProbability, it.windSpeed, it.cloudCover)
+                    }
                 }
             }
             if (due(Sources.MODELS.first().id, HOUR - 300)) jobs += async {
                 now to fetch(place, "source_models", trigger, Sources.modelsUrl(place.latitude, place.longitude, Sources.MODELS),
-                    fallback = Sources.modelsUrl(place.latitude, place.longitude, Sources.MODELS_SAFE)) { body ->
+                    fallback = Sources.modelsUrl(place.latitude, place.longitude, Sources.MODELS_SAFE, windCloud = false)) { body ->
                     Sources.parseModels(body, Sources.MODELS)
                 }
             }
             Sources.ENSEMBLES.forEach { e ->
                 if (due(Sources.key(e), 3 * HOUR - 300)) jobs += async {
-                    now to fetch(place, "source_ensemble_${e.id}", trigger, Sources.ensembleUrl(place.latitude, place.longitude, e)) { Sources.parseEnsemble(it, e) }
+                    now to fetch(place, "source_ensemble_${e.id}", trigger, Sources.ensembleUrl(place.latitude, place.longitude, e),
+                        fallback = Sources.ensembleUrl(place.latitude, place.longitude, e, windCloud = false)) { Sources.parseEnsemble(it, e) }
                 }
             }
             // MET Norway asks for no more than one pull per 3 hours here, so Refresh doesn't hurry it.
@@ -89,7 +92,8 @@ class SourceRepository(
         val rows = pulls.flatMap { (issuedAt, hours) ->
             hours.filter { it.time in (issuedAt - HOUR)..(issuedAt + KEEP_AHEAD_H * HOUR) }
                 .map { SourceHourEntity(placeId = place.id, source = it.source, issuedAt = issuedAt, time = it.time,
-                    temperature = it.temperature, precipitation = it.precipitation, rainChance = it.rainChance) }
+                    temperature = it.temperature, precipitation = it.precipitation, rainChance = it.rainChance,
+                    windSpeed = it.windSpeed, cloudCover = it.cloudCover) }
         }
         if (rows.isNotEmpty()) dao.insertAll(rows)
         runCatching { dao.prune(now, now - KEEP_DAYS * 86400, MIN_LEAD_H * HOUR) }.onFailure { Log.w("Sources", "Prune failed", it) }
@@ -120,10 +124,12 @@ class SourceRepository(
     suspend fun latest(placeId: Long, from: Long, hours: Int = KEEP_AHEAD_H): List<SourceHour> =
         dao.between(placeId, from, from + hours * HOUR)
             .groupBy { it.source to it.time }.values.map { v -> v.maxBy { it.issuedAt } }
-            .map { SourceHour(it.source, it.time, it.temperature, it.precipitation, it.rainChance) }
+            .map { SourceHour(it.source, it.time, it.temperature, it.precipitation, it.rainChance, it.windSpeed, it.cloudCover) }
 
     suspend fun issued(placeId: Long, from: Long, to: Long): List<IssuedSourceHour> =
-        dao.forScoring(placeId, from, to, MIN_LEAD_H * HOUR, (MAX_LEAD_H + 1) * HOUR - 1).map { IssuedSourceHour(it.source, it.issuedAt, it.time, it.temperature, it.precipitation, it.rainChance) }
+        dao.forScoring(placeId, from, to, MIN_LEAD_H * HOUR, (MAX_LEAD_H + 1) * HOUR - 1).map {
+            IssuedSourceHour(it.source, it.issuedAt, it.time, it.temperature, it.precipitation, it.rainChance, it.windSpeed, it.cloudCover)
+        }
 
     /**
      * Everything the Sources screen and Today need, scored over the last [days] days. Also saves each

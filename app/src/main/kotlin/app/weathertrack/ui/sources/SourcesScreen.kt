@@ -159,6 +159,23 @@ fun SourcesScreen(vm: SourcesViewModel = viewModel(factory = SourcesViewModel.Fa
                     sc?.takeIf { it.reportsTotal > 0 }?.let { "${it.reportsRight}/${it.reportsTotal}" } ?: "–",
                 )
             }
+            Text("Wind and cloud", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 8.dp))
+            Text(
+                "Weighted on their own records too: wind speed miss in km/h and cloud cover miss in percentage points, " +
+                    "settling after a couple of days of hours.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ScoreRow("Source", "Wind wt", "Wind ±", "Hours", "Cloud wt", "Cloud ±", "Hours", header = true)
+            v.weights.sortedByDescending { it.wind }.forEach { w ->
+                val sc = scores[w.source]
+                ScoreRow(
+                    Sources.label(w.source), "${(w.wind * 100).roundToInt()}%",
+                    sc?.windMae?.let { "${it.roundToInt()}" } ?: "–", "${sc?.windHours ?: 0}",
+                    "${(w.cloud * 100).roundToInt()}%",
+                    sc?.cloudMae?.let { "${it.roundToInt()}%" } ?: "–", "${sc?.cloudHours ?: 0}",
+                )
+            }
             PastSection(v, zone)
 
             Text(

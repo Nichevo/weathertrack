@@ -11,10 +11,28 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** What happened in one hour (Open-Meteo's model analysis for the spot). */
-data class ObsHour(val time: Long, val temperature: Double?, val feelsLike: Double?, val precipitation: Double?, val gusts: Double?)
+data class ObsHour(
+    val time: Long, val temperature: Double?, val feelsLike: Double?, val precipitation: Double?, val gusts: Double?,
+    val windSpeed: Double? = null,
+    /** Where the wind came from, degrees. */
+    val windDirection: Double? = null,
+    val cloudCover: Double? = null,
+    val cloudLow: Double? = null,
+    val cloudMid: Double? = null,
+    /** Sunlight on a flat surface, W/m². */
+    val radiation: Double? = null,
+)
 
 /** One hour as forecast [lead] days earlier (Open-Meteo Previous Runs; lead 0 is the latest run). */
-data class RunHour(val time: Long, val lead: Int, val temperature: Double?, val precipitation: Double?)
+data class RunHour(
+    val time: Long, val lead: Int, val temperature: Double?, val precipitation: Double?,
+    val windSpeed: Double? = null,
+    val gusts: Double? = null,
+    val windDirection: Double? = null,
+    val cloudCover: Double? = null,
+    val cloudLow: Double? = null,
+    val cloudMid: Double? = null,
+)
 
 /** One hour from a forecast this app stored when it was issued. */
 data class IssuedHour(
@@ -36,7 +54,11 @@ enum class MissKind { WET, DRY, WARM, COLD }
 data class Miss(val date: LocalDate, val kind: MissKind, val size: Double, val text: String)
 
 /** A likely range for a forecast value: forecast + bias, with 80% of past errors inside low..high. */
-data class Band(val lead: Int, val bias: Double, val low: Double, val high: Double, val days: Int) {
+data class Band(
+    val lead: Int, val bias: Double, val low: Double, val high: Double, val days: Int,
+    /** Set when the range comes from days with the same kind of cloud (e.g. low cloud). */
+    val regime: CloudRegime? = null,
+) {
     val width get() = high - low
     val confidence: Confidence get() = when {
         days < MIN_BAND_DAYS -> Confidence.UNKNOWN

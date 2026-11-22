@@ -62,6 +62,7 @@ class AppContainer(app: Application) {
     val sources = SourceRepository(http, database.rawPullDao(), database.sourceHourDao(), database.sourceDayDao())
     val radarSpot = RadarSpotChecker(rainMap, tiles)
     val settings = SettingsRepository(app)
+    val updates = app.weathertrack.data.UpdateChecker(app, http)
 }
 
 class WeatherApp : Application() {

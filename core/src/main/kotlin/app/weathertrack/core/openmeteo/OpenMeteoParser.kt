@@ -125,15 +125,32 @@ object OpenMeteoParser {
             )
         }
 
+        // Clear to overcast from low and mid cloud only: thin high cloud doesn't stop it being sunny.
+        val skyHourly = hourly.map { it.copy(weatherCode = app.weathertrack.core.cloud.Sky.skyCode(it.weatherCode, it.cloudCoverLow, it.cloudCoverMid)) }
+        val skyCurrent = current?.let { c ->
+            val h = hourly.firstOrNull { c.time > it.time - 3600 && c.time <= it.time }
+            if (h == null) c else c.copy(weatherCode = app.weathertrack.core.cloud.Sky.skyCode(c.weatherCode, h.cloudCoverLow, h.cloudCoverMid))
+        }
+        val offsetS = root.num("utc_offset_seconds")?.toLong() ?: 0L
+        val skyDaily = daily.map { d ->
+            val code = d.weatherCode
+            if (code == null || code !in 0..3) return@map d
+            val dayHours = hourly.filter { h ->
+                val local = java.time.Instant.ofEpochSecond(h.time - 1800 + offsetS).atZone(java.time.ZoneOffset.UTC)
+                local.toLocalDate().toString() == d.date && local.hour in 9..17
+            }.mapNotNull { app.weathertrack.core.cloud.Sky.blocking(it.cloudCoverLow, it.cloudCoverMid) }
+            if (dayHours.size < 4) d else d.copy(weatherCode = app.weathertrack.core.cloud.Sky.codeFor(dayHours.average()))
+        }
+
         return Forecast(
             latitude = root.num("latitude") ?: throw ParseException("Missing latitude"),
             longitude = root.num("longitude") ?: throw ParseException("Missing longitude"),
             timezone = root.str("timezone") ?: "UTC",
             utcOffsetSeconds = root.num("utc_offset_seconds")?.toInt() ?: 0,
-            current = current,
-            hourly = hourly,
+            current = skyCurrent,
+            hourly = skyHourly,
             quarterHourly = quarter,
-            daily = daily,
+            daily = skyDaily,
         )
     }
 
@@ -234,10 +251,16 @@ object OpenMeteoParser {
             val suffix = if (lead == 0) "" else "_previous_day$lead"
             val t = h.doubles("temperature_2m$suffix")
             val p = h.doubles("precipitation$suffix")
+            val ws = h.doubles("wind_speed_10m$suffix")
+            val wg = h.doubles("wind_gusts_10m$suffix")
+            val wd = h.doubles("wind_direction_10m$suffix")
+            val cc = h.doubles("cloud_cover$suffix")
+            val cl = h.doubles("cloud_cover_low$suffix")
+            val cm = h.doubles("cloud_cover_mid$suffix")
             times.mapIndexedNotNull { i, time ->
                 time ?: return@mapIndexedNotNull null
-                if (t.at(i) == null && p.at(i) == null) return@mapIndexedNotNull null
-                app.weathertrack.core.accuracy.RunHour(time, lead, t.at(i), p.at(i))
+                if (t.at(i) == null && p.at(i) == null && ws.at(i) == null && cc.at(i) == null) return@mapIndexedNotNull null
+                app.weathertrack.core.accuracy.RunHour(time, lead, t.at(i), p.at(i), ws.at(i), wg.at(i), wd.at(i), cc.at(i), cl.at(i), cm.at(i))
             }
         }
     }

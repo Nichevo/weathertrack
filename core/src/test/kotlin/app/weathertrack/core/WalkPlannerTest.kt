@@ -21,7 +21,7 @@ class WalkPlannerTest {
     private fun hour(
         h: Int, feels: Double = 18.0, temp: Double = feels, prob: Double = 0.0, gust: Double = 15.0,
         hum: Double = 60.0, cloud: Double = 60.0, uv: Double = 2.0, code: Int = 2,
-    ) = HourPoint(at(h), temp, feels, prob, 0.0, code, 8.0, gust, 200.0, uv, cloud, hum, true, 10.0, 40.0, 20.0)
+    ) = HourPoint(at(h), temp, feels, prob, 0.0, code, 8.0, gust, 200.0, uv, cloud, hum, true, cloud / 6, cloud * 2 / 3, 20.0)
 
     private val morning = WalkWindow("Morning", LocalTime.of(7, 0), LocalTime.of(9, 0))
     private val evening = WalkWindow("Evening", LocalTime.of(17, 0), LocalTime.of(19, 0))

@@ -165,6 +165,52 @@ fun ForecastCheckScreen(
                 }
             }
 
+            Section("Highs by kind of cloud") {
+                Text(
+                    "Daily high misses grouped by the cloud forecast for the day (9 am to 5 pm). Low cloud that lingers, like sea " +
+                        "stratus, usually means bigger misses, so on a low-cloud day Today uses these wider ranges once there are " +
+                        "${Band.MIN_BAND_DAYS} such days.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (s.highByCloud.isEmpty()) Text("Needs wind and cloud from earlier forecasts. It fills in after the next download.")
+                s.highByCloud.forEach { (reg, errs) ->
+                    errs.filter { it.lead in listOf(1, 2) }.forEach { e ->
+                        Text("${reg.label}, ${leadLabel(e.lead).lowercase()}: off by ${fmt1(e.meanAbs)}° on average, " +
+                            "${biasText(e.bias)}, 8 in 10 within ${String.format(Locale.US, "%+.1f", e.p10)} to ${String.format(Locale.US, "%+.1f", e.p90)}° (${e.days} days)")
+                    }
+                }
+            }
+
+            Section("Wind and cloud") {
+                Text(
+                    "Each hour against what happened (actual minus forecast). Range is where 8 in 10 hours landed. Wind direction " +
+                        "is only judged when it blew at least ${app.weathertrack.core.accuracy.WindCloud.DIRECTION_MIN_KMH.roundToInt()} km/h.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (s.windCloud.isEmpty()) Text("No wind or cloud to compare yet. It fills in after the next download.")
+                s.windCloud.forEach { (m, errs) ->
+                    Text(m.label, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
+                    errs.forEach { e ->
+                        val u = if (m.unit == "%") " pts" else if (m.unit == "°") "°" else " ${m.unit}"
+                        Text("${leadLabel(e.lead)}: off by ${e.meanAbs.roundToInt()}$u, " +
+                            "average ${if (e.bias >= 0) "+" else ""}${e.bias.roundToInt()}$u, " +
+                            "range ${String.format(Locale.US, "%+d", e.p10.roundToInt())} to ${String.format(Locale.US, "%+d", e.p90.roundToInt())} (${e.days} h)",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                if (s.sun.isNotEmpty()) {
+                    Text("Sunny or not", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
+                    Text("Daylight hours, sunny meaning under ${app.weathertrack.core.cloud.Sky.SUNNY_MAX.roundToInt()}% low and mid cloud. " +
+                        "High cloud is left out because it barely dims the sun.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    s.sun.forEach { sc ->
+                        Text("${leadLabel(sc.lead)}: right ${sc.right} of ${sc.total} hours (${((sc.share ?: 0.0) * 100).roundToInt()}%). " +
+                            "Said sunny ${sc.sunnyForecast} h, was sunny ${sc.sunnyActual} h.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+
             Section("When it said a chance of rain") {
                 Text(
                     "Forecasts this app stored, 1 to 24 hours ahead, against whether that hour was wet. " +

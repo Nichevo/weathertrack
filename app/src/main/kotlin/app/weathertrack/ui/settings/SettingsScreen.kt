@@ -45,6 +45,7 @@ import app.weathertrack.WeatherApp
 import app.weathertrack.notify.Notifier
 import app.weathertrack.settings.AppSettings
 import app.weathertrack.work.AlertScheduler
+import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -52,7 +53,7 @@ private val timeFmt = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: (() -> Unit)? = null, onOpenPlaces: () -> Unit = {}) {
+fun SettingsScreen(onBack: (() -> Unit)? = null, onOpenPlaces: () -> Unit = {}, onOpenAbout: (Int) -> Unit = {}) {
     val context = LocalContext.current
     val container = (context.applicationContext as WeatherApp).container
     val repo = container.settings
@@ -91,6 +92,10 @@ fun SettingsScreen(onBack: (() -> Unit)? = null, onOpenPlaces: () -> Unit = {}) 
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            Section("This app")
+            AboutSection(onOpenAbout)
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
             Section("Places")
             androidx.compose.material3.OutlinedButton(onClick = onOpenPlaces, modifier = Modifier.fillMaxWidth()) { Text("Saved places and your location") }
             val savedPlaces by container.places.places.collectAsState(initial = emptyList())
@@ -202,6 +207,42 @@ fun SettingsScreen(onBack: (() -> Unit)? = null, onOpenPlaces: () -> Unit = {}) 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             TextButtonReset { repo.update { AppSettings() } }
         }
+    }
+}
+
+/** Installed version, a newer build on GitHub if there is one, and links to What's new and Planned. */
+@Composable
+private fun AboutSection(onOpenAbout: (Int) -> Unit) {
+    val context = LocalContext.current
+    val updates = (context.applicationContext as WeatherApp).container.updates
+    val current = remember { app.weathertrack.core.about.ReleaseNotes.current(updates.changelog(), updates.versionName) }
+    var newer by remember { mutableStateOf<app.weathertrack.core.about.LatestRelease?>(null) }
+    var checking by remember { mutableStateOf(false) }
+    var checked by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    LaunchedEffect(Unit) { newer = updates.newer(); checked = true }
+    Text("Version ${updates.versionName}" + (current?.title?.substringAfter("· ", "")?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: ""),
+        style = MaterialTheme.typography.bodyMedium)
+    val n = newer
+    if (n != null) {
+        Text("Update available: ${n.name}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary)
+        androidx.compose.material3.Button(onClick = { app.weathertrack.ui.about.openLink(context, n.apkUrl ?: n.pageUrl) },
+            modifier = Modifier.fillMaxWidth()) { Text("Download the new version") }
+        Note("Install it over this one; your stored data is kept.")
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (!checked || checking) "Checking for updates…" else "Up to date", Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            androidx.compose.material3.TextButton(onClick = {
+                checking = true
+                scope.launch { newer = updates.newer(force = true); checking = false; checked = true }
+            }) { Text("Check now") }
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        androidx.compose.material3.OutlinedButton(onClick = { onOpenAbout(0) }, modifier = Modifier.weight(1f)) { Text("What's new") }
+        androidx.compose.material3.OutlinedButton(onClick = { onOpenAbout(1) }, modifier = Modifier.weight(1f)) { Text("Planned") }
     }
 }
 

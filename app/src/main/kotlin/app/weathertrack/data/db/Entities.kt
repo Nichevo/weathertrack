@@ -176,7 +176,12 @@ data class ObservedHourEntity(
     @androidx.room.ColumnInfo(name = "weather_code") val weatherCode: Int?,
     @androidx.room.ColumnInfo(name = "wind_gusts") val windGusts: Double?,
     val humidity: Double?,
-    @androidx.room.ColumnInfo(name = "cloud_cover") val cloudCover: Double?,
+    @androidx.room.ColumnInfo(name = "cloud_cover") val cloudCover: Double?,,
+    @androidx.room.ColumnInfo(name = "wind_speed") val windSpeed: Double? = null,
+    @androidx.room.ColumnInfo(name = "wind_direction") val windDirection: Double? = null,
+    @androidx.room.ColumnInfo(name = "cloud_cover_low") val cloudCoverLow: Double? = null,
+    @androidx.room.ColumnInfo(name = "cloud_cover_mid") val cloudCoverMid: Double? = null,
+    @androidx.room.ColumnInfo(name = "shortwave_radiation") val shortwaveRadiation: Double? = null,
 )
 
 /** An hour as forecast lead_days earlier, from Open-Meteo Previous Runs (backfills Forecast check). */
@@ -191,7 +196,13 @@ data class PreviousRunHourEntity(
     @androidx.room.ColumnInfo(name = "lead_days") val leadDays: Int,
     @androidx.room.ColumnInfo(name = "pull_id") val pullId: Long,
     val temperature: Double?,
-    val precipitation: Double?,
+    val precipitation: Double?,,
+    @androidx.room.ColumnInfo(name = "wind_speed") val windSpeed: Double? = null,
+    @androidx.room.ColumnInfo(name = "wind_gusts") val windGusts: Double? = null,
+    @androidx.room.ColumnInfo(name = "wind_direction") val windDirection: Double? = null,
+    @androidx.room.ColumnInfo(name = "cloud_cover") val cloudCover: Double? = null,
+    @androidx.room.ColumnInfo(name = "cloud_cover_low") val cloudCoverLow: Double? = null,
+    @androidx.room.ColumnInfo(name = "cloud_cover_mid") val cloudCoverMid: Double? = null,
 )
 
 /** "It's raining" / "It's dry" from the user, with what the forecast and radar said at that moment. */
@@ -234,7 +245,11 @@ data class SourceHourEntity(
     val temperature: Double?,
     val precipitation: Double?,
     /** 0..100. For single-run models, derived from the amount. */
-    @androidx.room.ColumnInfo(name = "rain_chance") val rainChance: Double?,
+    @androidx.room.ColumnInfo(name = "rain_chance") val rainChance: Double?,,
+    /** km/h. */
+    @androidx.room.ColumnInfo(name = "wind_speed") val windSpeed: Double? = null,
+    /** 0..100. */
+    @androidx.room.ColumnInfo(name = "cloud_cover") val cloudCover: Double? = null,
 )
 
 /** One forecast source's record for one local day at a place, kept after the hourly rows are cleared. */
