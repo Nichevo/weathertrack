@@ -28,7 +28,7 @@ private val RainBar = Color(0xFF2F7DD1)
 
 /** Forecast highs as a line, with the likely range (8 in 10 past days) as a band that widens with lead. */
 @Composable
-fun TempFanChart(points: List<FanPoint>, color: Color = TempLine) {
+fun TempFanChart(points: List<FanPoint>, lineColor: Color = TempLine) {
     if (points.isEmpty()) return
     val label = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
     val grid = MaterialTheme.colorScheme.outlineVariant
@@ -61,11 +61,11 @@ fun TempFanChart(points: List<FanPoint>, color: Color = TempLine) {
             for (i in points.indices.reversed()) lineTo(x(i), y(points[i].low))
             close()
         }
-        drawPath(band, color.copy(alpha = 0.22f))
+        drawPath(band, lineColor.copy(alpha = 0.22f))
         val line = Path().apply { points.forEachIndexed { i, p -> if (i == 0) moveTo(x(i), y(p.value)) else lineTo(x(i), y(p.value)) } }
-        drawPath(line, color, style = Stroke(width = 2.5.dp.toPx()))
+        drawPath(line, lineColor, style = Stroke(width = 2.5.dp.toPx()))
         points.forEachIndexed { i, p ->
-            drawCircle(color, 3.5.dp.toPx(), Offset(x(i), y(p.value)))
+            drawCircle(lineColor, 3.5.dp.toPx(), Offset(x(i), y(p.value)))
             drawContext.canvas.nativeCanvas.drawText(day(p), x(i), size.height - 16.dp.toPx(), text)
             drawContext.canvas.nativeCanvas.drawText("${p.low.roundToInt()}–${p.high.roundToInt()}°", x(i), size.height - 3.dp.toPx(), text)
         }
