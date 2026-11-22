@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Refresh
@@ -64,7 +65,7 @@ private val monthYear = DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH)
 /** The Home tab: how the weather drives heating and cooling at home, over time. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ClimateScreen(vm: ClimateViewModel = viewModel(factory = ClimateViewModel.Factory)) {
+fun ClimateScreen(onBack: (() -> Unit)? = null, vm: ClimateViewModel = viewModel(factory = ClimateViewModel.Factory)) {
     val s by vm.state.collectAsStateWithLifecycle()
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(vm::importEnergy)
@@ -74,6 +75,7 @@ fun ClimateScreen(vm: ClimateViewModel = viewModel(factory = ClimateViewModel.Fa
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("Home · ${s.place?.name ?: ""}") },
+            navigationIcon = { onBack?.let { b -> IconButton(onClick = b) { Icon(Icons.Filled.ArrowBack, "Back") } } },
             actions = {
                 IconButton(onClick = vm::sync, enabled = !s.syncing) {
                     Icon(Icons.Filled.Refresh, contentDescription = "Download new days")

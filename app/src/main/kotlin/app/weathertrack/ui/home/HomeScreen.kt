@@ -86,15 +86,17 @@ fun HomeScreen(
     val onReport: (Boolean) -> Unit = vm::report
     val forecast = state.stored?.forecast
     val zone = Format.zone(forecast?.timezone ?: state.place?.timezone)
-    val skinType = (androidx.compose.ui.platform.LocalContext.current.applicationContext as app.weathertrack.WeatherApp)
-        .container.settings.settings.collectAsStateWithLifecycle().value.skinType
+    val appSettings = (androidx.compose.ui.platform.LocalContext.current.applicationContext as app.weathertrack.WeatherApp)
+        .container.settings.settings.collectAsStateWithLifecycle().value
+    val skinType = appSettings.skinType
+    // A second clock for a saved place in another time zone (chosen in Settings).
+    val clock = state.places.firstOrNull { it.id == appSettings.clockPlaceId }?.let { p -> p.name to Format.zone(p.timezone) }
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { PlacePicker(state, onSelect = vm::selectPlace) },
             actions = {
                 IconButton(onClick = { vm.refresh() }) { Icon(Icons.Filled.Refresh, contentDescription = "Refresh") }
-                IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
             },
         )
         if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -114,6 +116,18 @@ fun HomeScreen(
             if (state.warnings.isNotEmpty()) {
                 item { WarningsCard(state.warnings, zone) }
             }
+            // 1. Now and the next hours.
+            if (forecast != null) {
+                item { NowRow(forecast, clock) }
+                item { SectionTitle("Next hours") }
+                item { HourStrip(forecast, zone) }
+                // 2. The next days, then their likely ranges.
+                item { SectionTitle("Next 7 days") }
+                val today = java.time.LocalDate.now(zone)
+                val spreadByDate = state.spread.associateBy { it.date }
+                items(forecast.daily) { d -> DayRow(d, bandFor(state.highBands, today, d.date), spreadByDate[d.date]) }
+            }
+            // 3. What to do: jacket and walks.
             item {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     listOf(3, 6).forEachIndexed { i, h ->
@@ -121,7 +135,7 @@ fun HomeScreen(
                             selected = state.windowHours == h,
                             onClick = { vm.setWindow(h) },
                             shape = SegmentedButtonDefaults.itemShape(i, 2),
-                        ) { Text("Next $h hours") }
+                        ) { Text("Jacket: next $h hours") }
                     }
                 }
             }
@@ -138,23 +152,23 @@ fun HomeScreen(
             }
             if (state.jacket != null) {
                 item { ReportRow(state.reportMessage, onReport = onReport) }
-                item { SureCard(state, zone) }
             }
             if (state.walks.isNotEmpty()) {
                 item { SectionTitle("Walks") }
                 val nowEpoch = System.currentTimeMillis() / 1000
                 items(state.walks) { w -> WalkCard(w, zone, nowEpoch) }
             }
+            // 4. How sure, and everything else.
+            if (state.jacket != null) {
+                item { SureCard(state, zone) }
+            }
+            state.sources?.takeIf { it.latest.isNotEmpty() }?.let { v -> item { SourcesCard(v, zone) } }
+            if (state.highFan.isNotEmpty() || forecast != null) {
+                item { NextDaysCheckCard(state, forecast) }
+            }
             if (forecast != null) {
-                item { NowRow(forecast) }
-                item { SectionTitle("Next hours") }
-                item { HourStrip(forecast, zone) }
                 state.tides?.let { t -> state.place?.let { p -> item { TideCard(t, zone, p.latitude, p.longitude) } } }
                 item { OutdoorCard(forecast, state.air, skinType, zone) }
-                item { SectionTitle("Next 7 days") }
-                val today = java.time.LocalDate.now(zone)
-                val spreadByDate = state.spread.associateBy { it.date }
-                items(forecast.daily) { d -> DayRow(d, bandFor(state.highBands, today, d.date), spreadByDate[d.date]) }
             }
             state.stored?.let { s ->
                 item {
@@ -386,7 +400,7 @@ private fun TriggerRow(triggers: List<Trigger>) {
 }
 
 @Composable
-private fun NowRow(f: Forecast) {
+private fun NowRow(f: Forecast, clock: Pair<String, ZoneId>? = null) {
     val c = f.current ?: return
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(Format.temp(c.temperature), fontSize = 56.sp, fontWeight = FontWeight.Light)
@@ -400,8 +414,28 @@ private fun NowRow(f: Forecast) {
             f.hourly.firstOrNull { it.time + 3600 > c.time }?.uvIndex?.let {
                 Text("UV ${Format.uv(it)}", style = MaterialTheme.typography.bodyMedium)
             }
+            clock?.let { (name, other) -> Text(secondClock(name, other), style = MaterialTheme.typography.bodyMedium) }
         }
     }
+}
+
+/** "Tokyo 2:52 PM, 4 h behind" style line for another time zone. */
+private fun secondClock(name: String, other: ZoneId): String {
+    val now = java.time.Instant.now()
+    val here = java.time.ZoneId.systemDefault().rules.getOffset(now).totalSeconds
+    val there = other.rules.getOffset(now).totalSeconds
+    val diff = (there - here) / 3600.0
+    val h = if (diff % 1.0 == 0.0) "${kotlin.math.abs(diff).toInt()} h" else String.format(java.util.Locale.US, "%.1f h", kotlin.math.abs(diff))
+    val rel = when {
+        diff > 0 -> "$h ahead"
+        diff < 0 -> "$h behind"
+        else -> "same time"
+    }
+    val day = java.time.LocalDate.now(other).let { d ->
+        val local = java.time.LocalDate.now()
+        if (d.isAfter(local)) " tomorrow" else if (d.isBefore(local)) " yesterday" else ""
+    }
+    return "$name ${Format.time(now.epochSecond, other)}$day, $rel"
 }
 
 @Composable

@@ -51,6 +51,8 @@ data class AppSettings(
     val skinType: Int = 2,
     // Weekly Dropbox backup (the app key and tokens live in their own private store).
     val backupWeekly: Boolean = false,
+    /** Saved place whose local time shows on Today; -1 for none. */
+    val clockPlaceId: Long = -1L,
 ) {
     val degreeDayBases: DegreeDayBases
         get() = DegreeDayBases(heating = heatingBase.toDouble(), cooling = coolingBase.toDouble())
@@ -130,6 +132,7 @@ class SettingsRepository(context: Context) {
             notifyWarnings = prefs.getBoolean("notify_warnings", d.notifyWarnings),
             skinType = prefs.getInt("skin_type", d.skinType),
             backupWeekly = prefs.getBoolean("backup_weekly", d.backupWeekly),
+            clockPlaceId = prefs.getLong("clock_place_id", d.clockPlaceId),
         )
     }
 
@@ -165,6 +168,7 @@ class SettingsRepository(context: Context) {
             .putBoolean("notify_warnings", s.notifyWarnings)
             .putInt("skin_type", s.skinType)
             .putBoolean("backup_weekly", s.backupWeekly)
+            .putLong("clock_place_id", s.clockPlaceId)
             .apply()
     }
 }

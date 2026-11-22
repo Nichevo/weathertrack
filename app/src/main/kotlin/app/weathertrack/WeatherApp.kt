@@ -19,6 +19,7 @@ import app.weathertrack.map.RainMapRepository
 import app.weathertrack.map.RadarSpotChecker
 import app.weathertrack.map.TileStore
 import app.weathertrack.data.PlaceRepository
+import app.weathertrack.data.SourceRepository
 import app.weathertrack.data.WeatherRepository
 import app.weathertrack.data.db.AppDatabase
 import app.weathertrack.data.net.ArchiveClient
@@ -53,6 +54,7 @@ class AppContainer(app: Application) {
     val tiles = TileStore(app)
     val rainMap = RainMapRepository(http, database.rawPullDao())
     val extras = ExtrasRepository(http, database.rawPullDao())
+    val sources = SourceRepository(http, database.rawPullDao(), database.sourceHourDao())
     val radarSpot = RadarSpotChecker(rainMap, tiles)
     val settings = SettingsRepository(app)
 }

@@ -28,7 +28,7 @@ private val RainBar = Color(0xFF2F7DD1)
 
 /** Forecast highs as a line, with the likely range (8 in 10 past days) as a band that widens with lead. */
 @Composable
-fun TempFanChart(points: List<FanPoint>) {
+fun TempFanChart(points: List<FanPoint>, lineColor: Color = TempLine) {
     if (points.isEmpty()) return
     val label = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
     val grid = MaterialTheme.colorScheme.outlineVariant
@@ -61,11 +61,11 @@ fun TempFanChart(points: List<FanPoint>) {
             for (i in points.indices.reversed()) lineTo(x(i), y(points[i].low))
             close()
         }
-        drawPath(band, TempLine.copy(alpha = 0.22f))
+        drawPath(band, lineColor.copy(alpha = 0.22f))
         val line = Path().apply { points.forEachIndexed { i, p -> if (i == 0) moveTo(x(i), y(p.value)) else lineTo(x(i), y(p.value)) } }
-        drawPath(line, TempLine, style = Stroke(width = 2.5.dp.toPx()))
+        drawPath(line, lineColor, style = Stroke(width = 2.5.dp.toPx()))
         points.forEachIndexed { i, p ->
-            drawCircle(TempLine, 3.5.dp.toPx(), Offset(x(i), y(p.value)))
+            drawCircle(lineColor, 3.5.dp.toPx(), Offset(x(i), y(p.value)))
             drawContext.canvas.nativeCanvas.drawText(day(p), x(i), size.height - 16.dp.toPx(), text)
             drawContext.canvas.nativeCanvas.drawText("${p.low.roundToInt()}–${p.high.roundToInt()}°", x(i), size.height - 3.dp.toPx(), text)
         }
@@ -113,3 +113,37 @@ fun RainFanChart(points: List<FanPoint>) {
 private fun day(p: FanPoint) = if (p.lead == 0) "Today" else p.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
 
 private fun mm(v: Double) = if (v < 10) String.format(Locale.US, "%.0f", v).let { if (v > 0 && it == "0") "<1" else it } else v.roundToInt().toString()
+
+/** Rain chance per day as bars: the forecast's chance, with a marker for the share of weather models that make it wet. */
+@Composable
+fun RainChanceChart(days: List<Triple<String, Double?, Double?>>) {
+    if (days.isEmpty()) return
+    val label = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+    val track = MaterialTheme.colorScheme.surfaceVariant
+    val marker = MaterialTheme.colorScheme.onSurface
+    Canvas(Modifier.fillMaxWidth().height(120.dp)) {
+        val text = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = label; textSize = 10.dp.toPx(); textAlign = android.graphics.Paint.Align.CENTER
+        }
+        val top = 14.dp.toPx()
+        val bottom = size.height - 16.dp.toPx()
+        val slot = size.width / days.size
+        val barW = slot * 0.5f
+        days.forEachIndexed { i, (name, chance, models) ->
+            val cx = slot * i + slot / 2
+            drawRect(track, androidx.compose.ui.geometry.Offset(cx - barW / 2, top), androidx.compose.ui.geometry.Size(barW, bottom - top))
+            chance?.let { c ->
+                val h = ((c / 100.0) * (bottom - top)).toFloat()
+                drawRect(RainBar.copy(alpha = (0.35 + 0.65 * c / 100).toFloat()), androidx.compose.ui.geometry.Offset(cx - barW / 2, bottom - h),
+                    androidx.compose.ui.geometry.Size(barW, h))
+                drawContext.canvas.nativeCanvas.drawText("${c.roundToInt()}%", cx, top - 3.dp.toPx(), text)
+            }
+            models?.let { m ->
+                val y = (bottom - (m / 100.0) * (bottom - top)).toFloat()
+                drawLine(marker, androidx.compose.ui.geometry.Offset(cx - barW / 2 - 4.dp.toPx(), y),
+                    androidx.compose.ui.geometry.Offset(cx + barW / 2 + 4.dp.toPx(), y), strokeWidth = 2.dp.toPx())
+            }
+            drawContext.canvas.nativeCanvas.drawText(name, cx, size.height - 3.dp.toPx(), text)
+        }
+    }
+}

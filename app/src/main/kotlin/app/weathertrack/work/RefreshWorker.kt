@@ -25,6 +25,11 @@ class RefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             runCatching { container.weather.refreshForecast(place, trigger = "background") }
                 .onFailure { failures++; Log.w(TAG, "Refresh failed for place ${place.id}", it) }
         }
+        // Every forecast source for the selected place, so their records build up for the blend.
+        container.places.selected()?.let { place ->
+            runCatching { container.sources.refresh(place, container.weather.cachedForecast(place)?.forecast, "background") }
+                .onFailure { Log.w(TAG, "Sources refresh failed", it) }
+        }
         return if (failures > 0 && runAttemptCount < 3) Result.retry() else Result.success()
     }
 
