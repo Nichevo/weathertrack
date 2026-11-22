@@ -234,7 +234,14 @@ private fun NowRow(s: WidgetSnapshot) {
         Text(Format.temp(c?.temperature), style = text(36, bold = true))
         Spacer(GlanceModifier.width(8.dp))
         Column(GlanceModifier.defaultWeight()) {
-            Text(WeatherCodes.describe(c?.weatherCode), style = text(15, bold = true), maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(WeatherCodes.describe(c?.weatherCode), style = text(15, bold = true), maxLines = 1)
+                // Wind: arrow pointing downwind, where it comes from, and speed.
+                val dir = c?.windDirection ?: s.forecast.hourly.firstOrNull { it.time + 3600 > s.nowEpoch }?.windDirection
+                val W = app.weathertrack.core.wind.Wind
+                Text("  ${W.arrow(dir) ?: ""}${W.compass8(dir) ?: ""} ${c?.windSpeed?.let { kotlin.math.round(it).toInt() } ?: "–"}",
+                    style = text(12, Palette.muted, bold = true), maxLines = 1)
+            }
             Text("Feels ${Format.temp(c?.apparentTemperature)} · ${Format.temp(today?.temperatureMax)}/${Format.temp(today?.temperatureMin)}",
                 style = text(12, Palette.muted), maxLines = 1)
         }

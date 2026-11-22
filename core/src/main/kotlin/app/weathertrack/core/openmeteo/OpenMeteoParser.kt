@@ -121,6 +121,7 @@ object OpenMeteoParser {
                 windSpeed = c.num("wind_speed_10m"),
                 windGusts = c.num("wind_gusts_10m"),
                 isDay = c.num("is_day")?.let { it >= 0.5 },
+                windDirection = c.num("wind_direction_10m"),
             )
         }
 

@@ -50,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -407,10 +408,17 @@ private fun NowRow(f: Forecast, clock: Pair<String, ZoneId>? = null) {
         Spacer(Modifier.width(16.dp))
         Column {
             Text(WeatherCodes.describe(c.weatherCode), style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Feels ${Format.temp(c.apparentTemperature)} · wind ${Format.kmh(c.windSpeed)}, gusts ${Format.kmh(c.windGusts)}",
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            Text("Feels ${Format.temp(c.apparentTemperature)}", style = MaterialTheme.typography.bodyMedium)
+            // Wind: an arrow pointing the way it blows, the compass point it comes from, speed and gusts.
+            val dir = c.windDirection ?: f.hourly.firstOrNull { it.time + 3600 > c.time }?.windDirection
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                dir?.let { WindArrow(it, 16.dp); Spacer(Modifier.width(4.dp)) }
+                Text(
+                    "Wind ${app.weathertrack.core.wind.Wind.summary(c.windSpeed, c.windGusts, dir)}" +
+                        (app.weathertrack.core.wind.Wind.describe(c.windSpeed)?.let { " ($it)" } ?: ""),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
             f.hourly.firstOrNull { it.time + 3600 > c.time }?.uvIndex?.let {
                 Text("UV ${Format.uv(it)}", style = MaterialTheme.typography.bodyMedium)
             }
@@ -472,8 +480,16 @@ private fun HourCell(h: HourPoint, zone: ZoneId) {
                 Text("feels ${Format.temp(it)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             val gust = h.windGusts ?: 0.0
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                h.windDirection?.let { WindArrow(it, 12.dp); Spacer(Modifier.width(2.dp)) }
+                Text(
+                    (app.weathertrack.core.wind.Wind.compass8(h.windDirection)?.let { "$it " } ?: "") +
+                        Format.kmh(h.windSpeed).removeSuffix(" km/h"),
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(
-                "💨 ${Format.kmh(h.windGusts).removeSuffix(" km/h")}",
+                "gust ${Format.kmh(h.windGusts).removeSuffix(" km/h")}",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = if (gust >= 40) FontWeight.Bold else FontWeight.Normal,
                 color = if (gust >= 40) Color(0xFFB3261E) else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -543,4 +559,19 @@ private fun DayRow(d: DayPoint, band: Band?, spread: app.weathertrack.core.accur
         HorizontalDivider()
     }
     Spacer(Modifier.height(0.dp))
+}
+
+/** An arrow pointing the way the wind blows, for a wind coming from [fromDeg]. */
+@Composable
+private fun WindArrow(fromDeg: Double, size: androidx.compose.ui.unit.Dp) {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    androidx.compose.foundation.Canvas(Modifier.size(size).rotate((fromDeg + 180).toFloat())) {
+        // An upward arrow, rotated so it points downwind.
+        val w = this.size.width; val h = this.size.height
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w / 2, 0f); lineTo(w * 0.9f, h * 0.45f); lineTo(w * 0.6f, h * 0.45f); lineTo(w * 0.6f, h)
+            lineTo(w * 0.4f, h); lineTo(w * 0.4f, h * 0.45f); lineTo(w * 0.1f, h * 0.45f); close()
+        }
+        drawPath(path, color)
+    }
 }

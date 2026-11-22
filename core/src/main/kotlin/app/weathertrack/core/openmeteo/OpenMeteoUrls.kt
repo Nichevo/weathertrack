@@ -21,7 +21,7 @@ object OpenMeteoUrls {
     )
     val CURRENT_VARS = listOf(
         "temperature_2m", "apparent_temperature", "precipitation", "weather_code",
-        "wind_speed_10m", "wind_gusts_10m", "is_day",
+        "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m", "is_day",
     )
 
     private fun coord(v: Double) = String.format(Locale.US, "%.4f", v)
