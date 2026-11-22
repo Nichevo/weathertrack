@@ -71,6 +71,17 @@ object OpenMeteoUrls {
             "&daily=${vars.joinToString(",")}" +
             "&timezone=auto"
 
+    /**
+     * 15-minute rain and hourly weather codes for every point of a grid, in one request
+     * (Open-Meteo answers multi-location requests with a JSON array).
+     */
+    fun rainGrid(lats: List<Double>, lons: List<Double>, hours: Int = 6): String =
+        FORECAST_BASE +
+            "?latitude=${lats.joinToString(",") { coord(it) }}&longitude=${lons.joinToString(",") { coord(it) }}" +
+            "&minutely_15=precipitation&forecast_minutely_15=${hours * 4}&past_minutely_15=2" +
+            "&hourly=weather_code&forecast_hours=$hours&past_hours=1" +
+            "&timezone=GMT&timeformat=unixtime"
+
     fun geocode(query: String, count: Int = 10): String =
         GEOCODING_BASE + "?name=" + java.net.URLEncoder.encode(query, "UTF-8") +
             "&count=$count&language=en&format=json"
