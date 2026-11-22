@@ -3,6 +3,8 @@ package app.weathertrack.map
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
@@ -45,7 +47,13 @@ data class MapLayers(
 /** Draws the base map, radar or forecast rain, thunder and a position marker onto any Canvas. */
 class MapPainter(private val tiles: TileStore) {
     private val tilePaint = Paint(Paint.FILTER_BITMAP_FLAG)
-    private val radarPaint = Paint(Paint.FILTER_BITMAP_FLAG).apply { alpha = 200 }
+    /** The base map, softened (less colour, a little lighter) so rain stands out on top. */
+    private val basePaint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
+        val m = ColorMatrix().apply { setSaturation(0.35f) }
+        m.postConcat(ColorMatrix(floatArrayOf(0.85f, 0f, 0f, 0f, 30f, 0f, 0.85f, 0f, 0f, 30f, 0f, 0f, 0.85f, 0f, 30f, 0f, 0f, 0f, 1f, 0f)))
+        colorFilter = ColorMatrixColorFilter(m)
+    }
+    private val radarPaint = Paint(Paint.FILTER_BITMAP_FLAG).apply { alpha = 235 }
     private val bg = Paint().apply { color = Color.rgb(0xDC, 0xE6, 0xF1) }
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0x2F, 0x62, 0x95) }
     private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(64, 0x2F, 0x62, 0x95) }
@@ -59,8 +67,7 @@ class MapPainter(private val tiles: TileStore) {
 
     /** Tile URLs [draw] needs for [v] and [layers], to preload before drawing off screen. */
     fun urlsFor(v: Viewport, layers: MapLayers): List<String> {
-        val base = TileMath.tilesFor(v.cx, v.cy, v.zoom, v.width, v.height)
-            .map { TileStore.baseUrl(it.z, TileMath.wrapX(it.x, it.z), it.y) }
+        val base = baseTiles(v).map { it.second }
         val radar = radarTiles(v, layers)?.map { it.second } ?: emptyList()
         return base + radar
     }
@@ -72,11 +79,9 @@ class MapPainter(private val tiles: TileStore) {
         canvas.translate((-v.left).toFloat(), (-v.top).toFloat())
         canvas.drawRect(v.left.toFloat(), v.top.toFloat(), (v.left + v.width).toFloat(), (v.top + v.height).toFloat(), bg)
 
-        for (t in TileMath.tilesFor(v.cx, v.cy, v.zoom, v.width, v.height)) {
-            val bmp = tiles.peek(TileStore.baseUrl(t.z, TileMath.wrapX(t.x, t.z), t.y)) ?: continue
-            val x = (t.x * TileMath.TILE).toFloat()
-            val y = (t.y * TileMath.TILE).toFloat()
-            canvas.drawBitmap(bmp, null, RectF(x, y, x + 256f, y + 256f), tilePaint)
+        for ((rect, url) in baseTiles(v)) {
+            val bmp = tiles.peek(url) ?: continue
+            canvas.drawBitmap(bmp, null, rect, basePaint)
         }
 
         radarTiles(v, layers)?.forEach { (rect, url) -> tiles.peek(url)?.let { canvas.drawBitmap(it, null, rect, radarPaint) } }
@@ -105,6 +110,21 @@ class MapPainter(private val tiles: TileStore) {
             canvas.drawCircle(x, y, 5f, dot)
         }
         canvas.restore()
+    }
+
+    /**
+     * Base tiles one zoom level deeper than the view, each drawn at half size, so 256-pixel tiles
+     * stay sharp on high-density screens (one world pixel is about 2.6 screen pixels).
+     */
+    private fun baseTiles(v: Viewport): List<Pair<RectF, String>> {
+        val bz = minOf(v.zoom + 1, TileStore.BASE_MAX_ZOOM)
+        val f = 2.0.pow(bz - v.zoom)
+        val size = (TileMath.TILE / f).toFloat()
+        return TileMath.tilesFor(v.cx * f, v.cy * f, bz, v.width * f, v.height * f).map { t ->
+            val x = (t.x * TileMath.TILE / f).toFloat()
+            val y = (t.y * TileMath.TILE / f).toFloat()
+            RectF(x, y, x + size, y + size) to TileStore.baseUrl(bz, TileMath.wrapX(t.x, bz), t.y)
+        }
     }
 
     /** Radar tiles at RainViewer's zoom (max 7), with where each lands in world pixels at the view's zoom. */
