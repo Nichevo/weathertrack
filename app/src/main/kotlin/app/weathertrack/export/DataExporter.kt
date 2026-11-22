@@ -23,6 +23,7 @@ class DataExporter(private val context: Context, private val db: AppDatabase) {
         USER_REPORT("user_report", "Your raining / dry reports"),
         SOURCE_HOUR("source_hour", "Every forecast source, hour by hour as issued"),
         SOURCE_DAY("source_day", "Each forecast source's record, day by day"),
+        FEELING_REPORT("feeling_report", "Your chilly, too warm and pollen reports, with the weather then"),
         RAW_PULL("raw_pull", "Raw API responses (JSON)"),
         PLACE("place", "Places"),
     }

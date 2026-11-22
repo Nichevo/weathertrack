@@ -53,6 +53,8 @@ data class AppSettings(
     val backupWeekly: Boolean = false,
     /** Saved place whose local time shows on Today; -1 for none. */
     val clockPlaceId: Long = -1L,
+    /** A quiet weather notification that shows on the lock screen. */
+    val lockGlance: Boolean = false,
 ) {
     val degreeDayBases: DegreeDayBases
         get() = DegreeDayBases(heating = heatingBase.toDouble(), cooling = coolingBase.toDouble())
@@ -133,6 +135,7 @@ class SettingsRepository(context: Context) {
             skinType = prefs.getInt("skin_type", d.skinType),
             backupWeekly = prefs.getBoolean("backup_weekly", d.backupWeekly),
             clockPlaceId = prefs.getLong("clock_place_id", d.clockPlaceId),
+            lockGlance = prefs.getBoolean("lock_glance", d.lockGlance),
         )
     }
 
@@ -169,6 +172,7 @@ class SettingsRepository(context: Context) {
             .putInt("skin_type", s.skinType)
             .putBoolean("backup_weekly", s.backupWeekly)
             .putLong("clock_place_id", s.clockPlaceId)
+            .putBoolean("lock_glance", s.lockGlance)
             .apply()
     }
 }

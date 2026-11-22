@@ -55,6 +55,8 @@ data class CurrentConditions(
     val windSpeed: Double?,
     val windGusts: Double?,
     val isDay: Boolean?,
+    /** Where the wind comes from, degrees. */
+    val windDirection: Double? = null,
 )
 
 data class Forecast(

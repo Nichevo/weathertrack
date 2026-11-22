@@ -151,6 +151,9 @@ fun SettingsScreen(onBack: (() -> Unit)? = null, onOpenPlaces: () -> Unit = {}) 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
             Section("Notifications")
+            Toggle("Weather on lock screen", s.lockGlance) { on -> enableNotification(on) { it.copy(lockGlance = on) } }
+            Note("A quiet notification with now, the jacket call, rain and your next walk. It also has a Turn off button, " +
+                "and you can add a \"Lock screen weather\" tile to the pull-down shade to switch it with one tap.")
             Note("For your selected place. Rain-soon checks run every 15 minutes while it is on.")
             Toggle("Rain soon", s.notifyRainSoon) { on -> enableNotification(on) { it.copy(notifyRainSoon = on) } }
             Toggle("Too hot", s.notifyHot) { on -> enableNotification(on) { it.copy(notifyHot = on) } }

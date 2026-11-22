@@ -41,9 +41,13 @@ fun SourcesCard(v: SourceView, zone: ZoneId) {
                 (main?.let { ". Main forecast says ${Format.pct(it)}" } ?: ""), style = MaterialTheme.typography.bodyMedium)
             val top = v.weights.take(3).joinToString(", ") { "${Sources.label(it.source)} ${(it.rain * 100).roundToInt()}%" }
             val scored = v.scores.maxOfOrNull { it.hours } ?: 0
+            val wet = v.scores.maxOfOrNull { it.wetHours + it.reportsTotal } ?: 0
             Text(
-                if (scored < 24) "Still learning which source is best here: weights are nearly equal for now."
-                else "Weighted most: $top (from $scored hours checked here).",
+                when {
+                    scored < 24 -> "Still learning which source is best here: weights are nearly equal for now."
+                    wet < 6 -> "Not much rain to learn from yet ($wet wet hours), so rain weights stay close to equal."
+                    else -> "Weighted most for rain: $top (from $wet wet hours and $scored hours checked here)."
+                },
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text("See the Sources tab for each one side by side.", style = MaterialTheme.typography.bodySmall,

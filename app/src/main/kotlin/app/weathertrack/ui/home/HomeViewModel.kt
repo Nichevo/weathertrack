@@ -55,6 +55,8 @@ data class HomeState(
     val lowFan: List<app.weathertrack.core.accuracy.FanPoint> = emptyList(),
     /** Every forecast source, their records here and the accuracy-weighted blend. */
     val sources: app.weathertrack.data.SourceView? = null,
+    /** What your chilly / too warm / pollen taps say so far. */
+    val comfort: List<String> = emptyList(),
 )
 
 class HomeViewModel(
@@ -180,6 +182,7 @@ class HomeViewModel(
         val now = System.currentTimeMillis() / 1000
         val mine = runCatching { app.weathertrack.core.accuracy.Feedback.current(forecastCheck.reports(place.id, now - 3600), now) }.getOrNull()
         if (_state.value.place?.id == place.id) _state.update { it.copy(trust = trust, myReport = mine) }
+        loadComfort(place)
     }
 
     /** Saves the user's "raining" / "dry" report, with what the forecast and radar said right now. */
@@ -200,6 +203,37 @@ class HomeViewModel(
                 }
                 .onFailure { e -> _state.update { it.copy(reportMessage = "Couldn't save that: ${e.message}") } }
         }
+    }
+
+    /** Saves "Feeling chilly", "Too warm" or "Pollen bothering me" with the weather right now. */
+    fun feel(kind: app.weathertrack.core.comfort.Feeling.Kind) {
+        val s = _state.value
+        val place = s.place ?: return
+        viewModelScope.launch {
+            val now = System.currentTimeMillis() / 1000
+            val f = s.stored?.forecast
+            val hour = f?.hourly?.firstOrNull { now >= it.time - 3600 && now < it.time }
+            runCatching { forecastCheck.feeling(place, kind, hour, f?.current) }
+                .onSuccess {
+                    val zone = Format.zone(place.timezone)
+                    val word = when (kind) {
+                        app.weathertrack.core.comfort.Feeling.Kind.CHILLY -> "chilly"
+                        app.weathertrack.core.comfort.Feeling.Kind.WARM -> "too warm"
+                        app.weathertrack.core.comfort.Feeling.Kind.POLLEN -> "pollen"
+                    }
+                    _state.update { it.copy(reportMessage = "Thanks. Saved \"$word\" at ${Format.time(now, zone)}, with the weather then.") }
+                    loadComfort(place)
+                }
+                .onFailure { e -> _state.update { it.copy(reportMessage = "Couldn't save that: ${e.message}") } }
+        }
+    }
+
+    private suspend fun loadComfort(place: PlaceEntity) {
+        val zone = Format.zone(place.timezone)
+        val lines = runCatching {
+            app.weathertrack.core.comfort.Comfort.summary(forecastCheck.feelings(place.id, System.currentTimeMillis() / 1000 - 3 * 365 * 86400L), zone)
+        }.getOrDefault(emptyList())
+        if (_state.value.place?.id == place.id) _state.update { it.copy(comfort = lines) }
     }
 
     fun refresh(trigger: String = "manual") {

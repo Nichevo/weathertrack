@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -50,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -151,7 +153,7 @@ fun HomeScreen(
                 }
             }
             if (state.jacket != null) {
-                item { ReportRow(state.reportMessage, onReport = onReport) }
+                item { ReportRow(state.reportMessage, onReport = onReport, onFeel = vm::feel, comfort = state.comfort) }
             }
             if (state.walks.isNotEmpty()) {
                 item { SectionTitle("Walks") }
@@ -208,7 +210,10 @@ private fun rainNowText(
 
 /** "It's raining" / "It's dry" buttons: the report is stored with what the forecast and radar said. */
 @Composable
-private fun ReportRow(message: String?, onReport: (Boolean) -> Unit) {
+private fun ReportRow(
+    message: String?, onReport: (Boolean) -> Unit,
+    onFeel: (app.weathertrack.core.comfort.Feeling.Kind) -> Unit = {}, comfort: List<String> = emptyList(),
+) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Right now here:", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
@@ -219,7 +224,16 @@ private fun ReportRow(message: String?, onReport: (Boolean) -> Unit) {
                 app.weathertrack.ui.WeatherIcon(0, true, size = 20.dp); Spacer(Modifier.width(6.dp)); Text("Dry")
             }
         }
+        // How you feel: saved with the weather at the time, so the app can learn your chilly point and pollen pattern.
+        Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("I'm:", style = MaterialTheme.typography.bodyMedium)
+            androidx.compose.material3.AssistChip(onClick = { onFeel(app.weathertrack.core.comfort.Feeling.Kind.CHILLY) }, label = { Text("🥶 Chilly") })
+            androidx.compose.material3.AssistChip(onClick = { onFeel(app.weathertrack.core.comfort.Feeling.Kind.WARM) }, label = { Text("🥵 Too warm") })
+            androidx.compose.material3.AssistChip(onClick = { onFeel(app.weathertrack.core.comfort.Feeling.Kind.POLLEN) }, label = { Text("🤧 Pollen") })
+        }
         message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+        comfort.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 
@@ -407,10 +421,17 @@ private fun NowRow(f: Forecast, clock: Pair<String, ZoneId>? = null) {
         Spacer(Modifier.width(16.dp))
         Column {
             Text(WeatherCodes.describe(c.weatherCode), style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Feels ${Format.temp(c.apparentTemperature)} · wind ${Format.kmh(c.windSpeed)}, gusts ${Format.kmh(c.windGusts)}",
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            Text("Feels ${Format.temp(c.apparentTemperature)}", style = MaterialTheme.typography.bodyMedium)
+            // Wind: an arrow pointing the way it blows, the compass point it comes from, speed and gusts.
+            val dir = c.windDirection ?: f.hourly.firstOrNull { it.time + 3600 > c.time }?.windDirection
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                dir?.let { WindArrow(it, 16.dp); Spacer(Modifier.width(4.dp)) }
+                Text(
+                    "Wind ${app.weathertrack.core.wind.Wind.summary(c.windSpeed, c.windGusts, dir)}" +
+                        (app.weathertrack.core.wind.Wind.describe(c.windSpeed)?.let { " ($it)" } ?: ""),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
             f.hourly.firstOrNull { it.time + 3600 > c.time }?.uvIndex?.let {
                 Text("UV ${Format.uv(it)}", style = MaterialTheme.typography.bodyMedium)
             }
@@ -472,8 +493,16 @@ private fun HourCell(h: HourPoint, zone: ZoneId) {
                 Text("feels ${Format.temp(it)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             val gust = h.windGusts ?: 0.0
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                h.windDirection?.let { WindArrow(it, 12.dp); Spacer(Modifier.width(2.dp)) }
+                Text(
+                    (app.weathertrack.core.wind.Wind.compass8(h.windDirection)?.let { "$it " } ?: "") +
+                        Format.kmh(h.windSpeed).removeSuffix(" km/h"),
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(
-                "💨 ${Format.kmh(h.windGusts).removeSuffix(" km/h")}",
+                "gust ${Format.kmh(h.windGusts).removeSuffix(" km/h")}",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = if (gust >= 40) FontWeight.Bold else FontWeight.Normal,
                 color = if (gust >= 40) Color(0xFFB3261E) else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -543,4 +572,19 @@ private fun DayRow(d: DayPoint, band: Band?, spread: app.weathertrack.core.accur
         HorizontalDivider()
     }
     Spacer(Modifier.height(0.dp))
+}
+
+/** An arrow pointing the way the wind blows, for a wind coming from [fromDeg]. */
+@Composable
+private fun WindArrow(fromDeg: Double, size: androidx.compose.ui.unit.Dp) {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    androidx.compose.foundation.Canvas(Modifier.size(size).rotate((fromDeg + 180).toFloat())) {
+        // An upward arrow, rotated so it points downwind.
+        val w = this.size.width; val h = this.size.height
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w / 2, 0f); lineTo(w * 0.9f, h * 0.45f); lineTo(w * 0.6f, h * 0.45f); lineTo(w * 0.6f, h)
+            lineTo(w * 0.4f, h); lineTo(w * 0.4f, h * 0.45f); lineTo(w * 0.1f, h * 0.45f); close()
+        }
+        drawPath(path, color)
+    }
 }

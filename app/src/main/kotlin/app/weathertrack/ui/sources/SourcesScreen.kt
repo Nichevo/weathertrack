@@ -143,16 +143,18 @@ fun SourcesScreen(vm: SourcesViewModel = viewModel(factory = SourcesViewModel.Fa
                 modifier = Modifier.padding(top = 8.dp))
             Text(
                 "Forecasts made 1 to 30 hours ahead, checked against what happened at your spot (Open-Meteo's analysis) " +
-                    "and against your Raining/Dry reports. The blend gives more weight to sources with smaller errors once there are enough hours.",
+                    "and against your Raining/Dry reports. Rain and temperature are blended separately. Temperature weights settle " +
+                    "after a couple of days; rain weights stay near equal until about a dozen wet hours or reports, and judge wet and dry hours equally.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             val scores = v.scores.associateBy { it.source }
-            ScoreRow("Source", "Blend", "Hours", "Wet/dry", "Temp ±", "Reports", header = true)
+            ScoreRow("Source", "Rain wt", "Wet hrs", "Wet/dry", "Temp wt", "Temp ±", "Reports", header = true)
             v.weights.forEach { w ->
                 val sc = scores[w.source]
                 ScoreRow(
-                    Sources.label(w.source), "${(w.rain * 100).roundToInt()}%", "${sc?.hours ?: 0}",
+                    Sources.label(w.source), "${(w.rain * 100).roundToInt()}%", "${sc?.wetHours ?: 0}",
                     sc?.wetDryRight?.let { "${(it * 100).roundToInt()}%" } ?: "–",
+                    "${(w.temp * 100).roundToInt()}%",
                     sc?.tempMae?.let { String.format(java.util.Locale.US, "%.1f°", it) } ?: "–",
                     sc?.takeIf { it.reportsTotal > 0 }?.let { "${it.reportsRight}/${it.reportsTotal}" } ?: "–",
                 )
@@ -160,7 +162,7 @@ fun SourcesScreen(vm: SourcesViewModel = viewModel(factory = SourcesViewModel.Fa
             PastSection(v, zone)
 
             Text(
-                "Blend is the weight for rain. Sources: Open-Meteo (ECMWF, NOAA GFS, DWD ICON, UK Met Office, GEM, JMA, Météo-France, CMA, " +
+                "Rain wt and Temp wt are each source's share of the blend. Sources: Open-Meteo (ECMWF, NOAA GFS, DWD ICON, UK Met Office, GEM, JMA, Météo-France, CMA, " +
                     "and the ECMWF, GFS and ICON ensembles) and MET Norway (CC BY 4.0). MetService has no free forecast feed, so it isn't included.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -216,11 +218,11 @@ private fun ChanceCell(chance: Double?, bold: Boolean = false) {
 }
 
 @Composable
-private fun ScoreRow(a: String, b: String, c: String, d: String, e: String, f: String, header: Boolean = false) {
+private fun ScoreRow(a: String, b: String, c: String, d: String, e: String, f: String, g: String, header: Boolean = false) {
     val w = if (header) FontWeight.SemiBold else FontWeight.Normal
     Row(Modifier.fillMaxWidth()) {
-        Text(a, Modifier.weight(2.4f), style = MaterialTheme.typography.bodySmall, fontWeight = w, maxLines = 1)
-        listOf(b, c, d, e, f).forEach {
+        Text(a, Modifier.weight(2.2f), style = MaterialTheme.typography.bodySmall, fontWeight = w, maxLines = 1)
+        listOf(b, c, d, e, f, g).forEach {
             Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, fontWeight = w, textAlign = TextAlign.End, maxLines = 1)
         }
     }

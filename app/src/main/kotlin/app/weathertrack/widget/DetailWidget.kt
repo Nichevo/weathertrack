@@ -105,8 +105,9 @@ class DetailWidget : GlanceAppWidget() {
      * The launcher picks the largest of these that fits.
      */
     override val sizeMode: SizeMode = SizeMode.Responsive(
-        setOf(DpSize(180.dp, 100.dp), DpSize(180.dp, 150.dp), DpSize(290.dp, 100.dp), DpSize(290.dp, 150.dp),
-            DpSize(290.dp, 200.dp), DpSize(400.dp, 100.dp), DpSize(400.dp, 150.dp), DpSize(400.dp, 200.dp)),
+        setOf(DpSize(180.dp, 100.dp), DpSize(180.dp, 150.dp), DpSize(180.dp, 180.dp),
+            DpSize(290.dp, 100.dp), DpSize(290.dp, 150.dp), DpSize(290.dp, 180.dp),
+            DpSize(400.dp, 100.dp), DpSize(400.dp, 150.dp), DpSize(400.dp, 180.dp)),
     )
 
     companion object {
@@ -114,7 +115,7 @@ class DetailWidget : GlanceAppWidget() {
         val SIDE_BY_SIDE_W = 290.dp
         /** From this height the hours fit below "now", compact; from [ROOMY_H] at full size. */
         val STACK_H = 150.dp
-        val ROOMY_H = 200.dp
+        val ROOMY_H = 180.dp
     }
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -167,7 +168,7 @@ private fun WidgetContent(s: WidgetSnapshot?) {
     val root = GlanceModifier.fillMaxSize()
         .background(ImageProvider(bg))
         .cornerRadius(24.dp)
-        .padding(horizontal = 14.dp, vertical = 10.dp)
+        .padding(horizontal = 14.dp, vertical = 8.dp)
         .clickable(actionStartActivity<MainActivity>())
     if (s == null) {
         Box(root, contentAlignment = Alignment.Center) {
@@ -193,10 +194,10 @@ private fun WidgetContent(s: WidgetSnapshot?) {
             }
         } else {
             NowRow(s)
-            Spacer(GlanceModifier.height(6.dp))
+            Spacer(GlanceModifier.height(4.dp))
             Badges(s)
             if (roomy) {
-                Spacer(GlanceModifier.height(6.dp))
+                Spacer(GlanceModifier.height(4.dp))
                 TwoHourSteps(s, GlanceModifier.fillMaxWidth())
             } else if (tall) {
                 // Not much height: one line of times and temperatures (rain chance when it's likely).
@@ -205,8 +206,19 @@ private fun WidgetContent(s: WidgetSnapshot?) {
             }
         }
         Spacer(GlanceModifier.defaultWeight())
-        Row(GlanceModifier.fillMaxWidth().background(ColorProvider(Palette.chip)).cornerRadius(14.dp).padding(vertical = 4.dp)) {
-            nextDays(s).forEach { d -> DayCell(d, GlanceModifier.defaultWeight()) }
+        // The next four days in two rows of two, so each can use bigger text.
+        val days = nextDays(s)
+        Column(GlanceModifier.fillMaxWidth().background(ColorProvider(Palette.chip)).cornerRadius(14.dp)
+            .padding(horizontal = 8.dp, vertical = 2.dp)) {
+            days.chunked(2).forEach { pair ->
+                Row(GlanceModifier.fillMaxWidth()) {
+                    pair.forEachIndexed { i, d ->
+                        if (i > 0) Spacer(GlanceModifier.width(12.dp))
+                        DayCell(d, GlanceModifier.defaultWeight())
+                    }
+                    if (pair.size == 1) Spacer(GlanceModifier.defaultWeight())
+                }
+            }
         }
     }
 }
@@ -217,19 +229,30 @@ private fun NowRow(s: WidgetSnapshot) {
     val today = s.forecast.daily.firstOrNull { it.date == Instant.ofEpochSecond(s.nowEpoch).atZone(s.zone).toLocalDate().toString() }
     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Image(ImageProvider(iconFor(c?.weatherCode, c?.isDay != false)), contentDescription = WeatherCodes.describe(c?.weatherCode),
-            modifier = GlanceModifier.size(40.dp))
-        Spacer(GlanceModifier.width(8.dp))
-        Text(Format.temp(c?.temperature), style = text(32, bold = true))
+            modifier = GlanceModifier.size(38.dp))
+        Spacer(GlanceModifier.width(6.dp))
+        Text(Format.temp(c?.temperature), style = text(36, bold = true))
         Spacer(GlanceModifier.width(8.dp))
         Column(GlanceModifier.defaultWeight()) {
-            Text(WeatherCodes.describe(c?.weatherCode), style = text(13, bold = true), maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(WeatherCodes.describe(c?.weatherCode), style = text(15, bold = true), maxLines = 1)
+                // Wind: arrow pointing downwind, where it comes from, and speed.
+                val dir = c?.windDirection ?: s.forecast.hourly.firstOrNull { it.time + 3600 > s.nowEpoch }?.windDirection
+                val W = app.weathertrack.core.wind.Wind
+                Text("  ${W.arrow(dir) ?: ""}${W.compass8(dir) ?: ""} ${c?.windSpeed?.let { kotlin.math.round(it).toInt() } ?: "–"}",
+                    style = text(12, Palette.muted, bold = true), maxLines = 1)
+            }
             Text("Feels ${Format.temp(c?.apparentTemperature)} · ${Format.temp(today?.temperatureMax)}/${Format.temp(today?.temperatureMin)}",
-                style = text(11, Palette.muted), maxLines = 1)
+                style = text(12, Palette.muted), maxLines = 1)
         }
+        // Each line ends in a bold time, so the update time and the second clock line up on the right.
         Column(horizontalAlignment = Alignment.End) {
-            Text(s.placeName, style = text(12, bold = true), maxLines = 1)
+            Text(s.placeName, style = text(13, bold = true), maxLines = 1)
             val uvNow = s.forecast.hourly.firstOrNull { it.time + 3600 > s.nowEpoch }?.uvIndex
-            Text("UV ${Format.uv(uvNow)} · ${Format.time(s.fetchedAtMs / 1000, s.zone)}", style = text(10, Palette.faint), maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("UV ${Format.uv(uvNow)} · ", style = text(11, Palette.faint), maxLines = 1)
+                Text(Format.time(s.fetchedAtMs / 1000, s.zone), style = text(11, bold = true), maxLines = 1)
+            }
             s.clock?.let { (name, zone) -> SecondClock(name, zone) }
         }
     }
@@ -249,12 +272,18 @@ private fun TwoHourSteps(s: WidgetSnapshot, modifier: GlanceModifier, compact: B
 
 @Composable
 private fun HourCell(h: HourPoint, zone: ZoneId, modifier: GlanceModifier, compact: Boolean = false) {
-    val wet = (h.precipitationProbability ?: 0.0) >= 40
+    val chance = h.precipitationProbability ?: 0.0
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(Format.hour(h.time, zone).replace(" ", "").lowercase(), style = text(10, Palette.faint))
-        Image(ImageProvider(iconFor(h.weatherCode, h.isDay != false)), contentDescription = null, modifier = GlanceModifier.size(if (compact) 18.dp else 20.dp))
-        Text(Format.temp(h.temperature), style = text(13, bold = true))
-        Text(Format.pct(h.precipitationProbability), style = text(10, if (wet) Palette.rain else Palette.faint, bold = wet))
+        Text(Format.hour(h.time, zone).replace(" ", "").lowercase(), style = text(if (compact) 10 else 12, Palette.faint), maxLines = 1)
+        Image(ImageProvider(iconFor(h.weatherCode, h.isDay != false)), contentDescription = null,
+            modifier = GlanceModifier.size(if (compact) 14.dp else 15.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(Format.temp(h.temperature), style = text(if (compact) 13 else 16, bold = true), maxLines = 1)
+            Spacer(GlanceModifier.width(2.dp))
+            // Rain chance on every hour: faint when low, blue from 20%, bold from 40%.
+            Text(Format.pct(h.precipitationProbability),
+                style = text(if (compact) 9 else 11, if (chance >= 20) Palette.rain else Palette.faint, bold = chance >= 40), maxLines = 1)
+        }
     }
 }
 
@@ -300,7 +329,7 @@ private fun Badge(label: String, bg: Color, fg: Color) {
     Box(
         GlanceModifier.background(ColorProvider(bg)).cornerRadius(10.dp).padding(horizontal = 8.dp, vertical = 2.dp),
     ) {
-        Text(label, style = text(11, fg, bold = true), maxLines = 1)
+        Text(label, style = text(12, fg, bold = true), maxLines = 1)
     }
 }
 
@@ -312,15 +341,15 @@ private fun nextDays(s: WidgetSnapshot): List<DayPoint> {
 @Composable
 private fun DayCell(d: DayPoint, modifier: GlanceModifier) {
     val wet = (d.precipitationProbabilityMax ?: 0.0) >= 40
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(Format.day(d.date).substringBefore(' '), style = text(11, Palette.muted, bold = true), maxLines = 1)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Image(ImageProvider(iconFor(d.weatherCode, true)), contentDescription = WeatherCodes.describe(d.weatherCode),
-                modifier = GlanceModifier.size(20.dp))
-            Spacer(GlanceModifier.width(3.dp))
-            Text("${Format.temp(d.temperatureMax)}/${Format.temp(d.temperatureMin)}", style = text(11, bold = true), maxLines = 1)
-        }
-        Text(Format.pct(d.precipitationProbabilityMax), style = text(10, if (wet) Palette.rain else Palette.faint, bold = wet), maxLines = 1)
+    Row(modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(Format.day(d.date).substringBefore(' '), style = text(13, Palette.muted, bold = true), maxLines = 1)
+        Spacer(GlanceModifier.width(6.dp))
+        Image(ImageProvider(iconFor(d.weatherCode, true)), contentDescription = WeatherCodes.describe(d.weatherCode),
+            modifier = GlanceModifier.size(17.dp))
+        Spacer(GlanceModifier.width(4.dp))
+        Text("${Format.temp(d.temperatureMax)}/${Format.temp(d.temperatureMin)}", style = text(14, bold = true), maxLines = 1)
+        Spacer(GlanceModifier.defaultWeight())
+        Text(Format.pct(d.precipitationProbabilityMax), style = text(12, if (wet) Palette.rain else Palette.faint, bold = wet), maxLines = 1)
     }
 }
 
@@ -336,7 +365,7 @@ private fun SecondClock(name: String, zone: ZoneId) {
     val views = android.widget.RemoteViews(context.packageName, R.layout.widget_second_clock).apply {
         setTextViewText(R.id.second_clock_name, name)
         setString(R.id.second_clock_time, "setTimeZone", zone.id)
-        setTextViewText(R.id.second_clock_offset, offset)
+        setTextViewText(R.id.second_clock_offset, "$offset · ")
     }
     androidx.glance.appwidget.AndroidRemoteViews(views)
 }

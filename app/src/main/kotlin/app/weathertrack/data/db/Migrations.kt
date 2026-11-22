@@ -66,5 +66,12 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+    val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `feeling_report` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `place_id` INTEGER NOT NULL, `reported_at` INTEGER NOT NULL, `kind` TEXT NOT NULL, `temperature` REAL, `feels_like` REAL, `wind_speed` REAL, `wind_gusts` REAL, `wind_direction` REAL, `humidity` REAL, `cloud_cover` REAL)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_feeling_report_place_id_reported_at` ON `feeling_report` (`place_id`, `reported_at`)")
+        }
+    }
+
+    val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
 }

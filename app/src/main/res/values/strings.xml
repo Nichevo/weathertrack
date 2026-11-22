@@ -4,4 +4,5 @@
     <string name="detail_widget_description">Now, today in 2-hour steps, the next 3 days, UV, and jacket, hot, cold and rain alerts.</string>
     <string name="rain_map_widget_name">Rain map</string>
     <string name="rain_map_widget_description">Your local area with radar now and forecast rain for the next 4 hours. Tap a step to see it.</string>
+    <string name="lock_glance_tile">Lock screen weather</string>
 </resources>
