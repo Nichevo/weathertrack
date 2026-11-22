@@ -14,6 +14,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
@@ -110,12 +113,12 @@ fun DataScreen(onBack: () -> Unit = {}) {
                         style = MaterialTheme.typography.bodySmall,
                     )
                     val options = KeepOlder.entries
-                    androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                         options.forEachIndexed { i, k ->
-                            androidx.compose.material3.SegmentedButton(
+                            SegmentedButton(
                                 selected = appSettings.keepOlder == k.key,
                                 onClick = { settingsRepo.update { it.copy(keepOlder = k.key) } },
-                                shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, options.size),
+                                shape = SegmentedButtonDefaults.itemShape(i, options.size),
                             ) { Text(k.label, style = MaterialTheme.typography.labelSmall) }
                         }
                     }
