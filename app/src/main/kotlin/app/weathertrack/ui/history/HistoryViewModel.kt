@@ -9,7 +9,14 @@ import app.weathertrack.WeatherApp
 import app.weathertrack.core.history.DecadeStats
 import app.weathertrack.core.history.HistoryStats
 import app.weathertrack.core.history.YearOnYear
+import app.weathertrack.data.ExtrasRepository
 import app.weathertrack.data.HistoryRepository
+import app.weathertrack.core.seasonal.ModelMonth
+import app.weathertrack.core.seasonal.OniMonth
+import app.weathertrack.core.seasonal.Outlook
+import app.weathertrack.core.seasonal.OutlookView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import app.weathertrack.data.PlaceRepository
 import app.weathertrack.data.db.ObservedRange
 import app.weathertrack.data.db.PlaceEntity
@@ -35,11 +42,14 @@ data class HistoryState(
     val decades: List<DecadeStats> = emptyList(),
     /** The last 12 complete months against their averages, by season. */
     val seasons: app.weathertrack.core.history.SeasonView? = null,
+    /** The next 12 months: seasonal model, normals and El Niño / La Niña effects. */
+    val outlook: OutlookView? = null,
 )
 
 class HistoryViewModel(
     private val history: HistoryRepository,
     private val places: PlaceRepository,
+    private val extras: ExtrasRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HistoryState())
     val state: StateFlow<HistoryState> = _state
@@ -113,6 +123,32 @@ class HistoryViewModel(
             app.weathertrack.core.history.Seasons.view(obs, lastFull, southern = place.latitude < 0)
         }
         if (_state.value.place?.id == place.id) _state.update { it.copy(seasons = view) }
+        refreshOutlook(place)
+    }
+
+    private var outlookJob: Job? = null
+    private var outlookPlace: Long? = null
+    private var model: Pair<Long, List<ModelMonth>>? = null
+    private var oni: List<OniMonth>? = null
+
+    /** Downloads (at most daily) the seasonal model and El Niño record, then builds the next 12 months. */
+    private fun refreshOutlook(place: PlaceEntity) {
+        if (outlookJob?.isActive == true && outlookPlace == place.id) return
+        outlookJob?.cancel()
+        outlookPlace = place.id
+        outlookJob = viewModelScope.launch {
+            val m = model?.takeIf { it.first == place.id }?.second
+                ?: extras.seasonalModel(place, trigger = "history").also { if (it.isNotEmpty()) model = place.id to it }
+            val o = oni ?: extras.oni(place, trigger = "history").also { if (it.isNotEmpty()) oni = it }
+            val view = withContext(Dispatchers.Default) {
+                val obs = history.all(place.id)
+                if (obs.isEmpty()) return@withContext null
+                val last = obs.last().date
+                val lastFull = if (last == YearMonth.from(last).atEndOfMonth()) YearMonth.from(last) else YearMonth.from(last).minusMonths(1)
+                Outlook.build(obs, lastFull.plusMonths(1), place.latitude < 0, m, o)
+            }
+            if (_state.value.place?.id == place.id) _state.update { it.copy(outlook = view) }
+        }
     }
 
     fun shiftMonth(delta: Long) {
@@ -143,7 +179,7 @@ class HistoryViewModel(
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as WeatherApp
-                HistoryViewModel(app.container.history, app.container.places)
+                HistoryViewModel(app.container.history, app.container.places, app.container.extras)
             }
         }
     }

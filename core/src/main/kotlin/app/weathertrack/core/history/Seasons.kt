@@ -55,9 +55,9 @@ object Seasons {
         }
     }
 
-    private class MonthSum(val days: Int, val rain: Double?, val temp: Double?)
+    internal class MonthSum(val days: Int, val rain: Double?, val temp: Double?)
 
-    private fun sum(obs: List<DailyObs>): MonthSum {
+    internal fun sum(obs: List<DailyObs>): MonthSum {
         val rain = obs.mapNotNull { it.precipitation }
         val temps = obs.mapNotNull { o -> if (o.tempMax != null && o.tempMin != null) (o.tempMax + o.tempMin) / 2 else null }
         return MonthSum(obs.size, rain.takeIf { it.isNotEmpty() }?.sum(), temps.takeIf { it.isNotEmpty() }?.average())
