@@ -55,7 +55,7 @@ fun AboutScreen(startTab: Int = 0, onBack: () -> Unit) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("What's new") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Planned") })
         }
-        val sections = if (tab == 0) changelog else roadmap
+        val sections: List<NoteSection> = if (tab == 0) changelog else roadmap
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
