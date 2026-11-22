@@ -181,7 +181,7 @@ class HomeViewModel(
     }
 
     private suspend fun loadExtras(place: PlaceEntity) {
-        val tides = runCatching { extras.tides(place) }.getOrNull()
+        val tides = runCatching { extras.tides(place, portName = settings.current.tidePort) }.getOrNull()
         if (_state.value.place?.id == place.id) _state.update { it.copy(tides = tides) }
         val spread = runCatching { extras.spread(place) }.getOrDefault(emptyList())
         if (_state.value.place?.id == place.id) _state.update { it.copy(spread = spread) }

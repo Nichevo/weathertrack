@@ -28,8 +28,19 @@ data class RawPullEntity(
     @androidx.room.ColumnInfo(name = "duration_ms") val durationMs: Long,
     /** What triggered the pull: "app", "background", "manual". */
     val trigger: String,
+    /** The response as received; empty once it has been gzipped into [bodyGz]. */
     val body: String,
-)
+    /** The same response gzipped, for pulls older than 30 days (see StorageMaintenance). */
+    @androidx.room.ColumnInfo(name = "body_gz") val bodyGz: ByteArray? = null,
+) {
+    /** The response text, unzipped if it was compressed. */
+    val text: String
+        get() = if (body.isEmpty() && bodyGz != null) app.weathertrack.core.storage.Storage.gunzip(bodyGz) else body
+
+    // A ByteArray field needs these for a data class to compare by content.
+    override fun equals(other: Any?) = other is RawPullEntity && other.id == id && other.fetchedAt == fetchedAt && other.url == url
+    override fun hashCode() = (id * 31 + fetchedAt).hashCode()
+}
 
 /** One hourly forecast value exactly as issued in a given pull. Key: (pull, valid time). */
 @Entity(

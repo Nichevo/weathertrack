@@ -43,6 +43,7 @@ object AlertScheduler {
     fun apply(context: Context, s: AppSettings) {
         val wm = WorkManager.getInstance(context)
         RefreshWorker.schedule(context, s.refreshMinutes)
+        app.weathertrack.data.MaintenanceWorker.schedule(context)
         app.weathertrack.backup.BackupWorker.schedule(context, s.backupWeekly)
         if (s.anyAlertOn) {
             wm.enqueueUniquePeriodicWork(
@@ -97,7 +98,10 @@ class AlertWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         if (quiet && !walkDue) return Result.success()
 
         // Rain soon needs a fresh 15-minute nowcast; heat and cold can use an hour-old forecast.
-        val (place, stored) = freshForecast(app, if (s.notifyRainSoon || walkDue) 10 else 60, "alert") ?: return Result.success()
+        // In battery saver, rain-soon checks settle for a 30-minute-old forecast instead of 10.
+        val saver = (applicationContext.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isPowerSaveMode
+        val maxAge = if (s.notifyRainSoon || walkDue) (if (saver) 30 else 10) else 60
+        val (place, stored) = freshForecast(app, maxAge, "alert") ?: return Result.success()
         val f = stored.forecast
         val zone = Format.zone(f.timezone)
         val now = System.currentTimeMillis() / 1000

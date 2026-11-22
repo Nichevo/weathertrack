@@ -46,6 +46,7 @@ import app.weathertrack.notify.Notifier
 import app.weathertrack.settings.AppSettings
 import app.weathertrack.work.AlertScheduler
 import kotlinx.coroutines.launch
+import app.weathertrack.core.tides.Linz
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -53,7 +54,9 @@ private val timeFmt = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: (() -> Unit)? = null, onOpenPlaces: () -> Unit = {}, onOpenAbout: (Int) -> Unit = {}) {
+fun SettingsScreen(
+    onBack: (() -> Unit)? = null, onOpenPlaces: () -> Unit = {}, onOpenAbout: (Int) -> Unit = {}, onOpenReport: () -> Unit = {},
+) {
     val context = LocalContext.current
     val container = (context.applicationContext as WeatherApp).container
     val repo = container.settings
@@ -94,6 +97,7 @@ fun SettingsScreen(onBack: (() -> Unit)? = null, onOpenPlaces: () -> Unit = {}, 
         ) {
             Section("This app")
             AboutSection(onOpenAbout)
+            androidx.compose.material3.OutlinedButton(onClick = onOpenReport, modifier = Modifier.fillMaxWidth()) { Text("Report a problem") }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
             Section("Places")
@@ -184,6 +188,12 @@ fun SettingsScreen(onBack: (() -> Unit)? = null, onOpenPlaces: () -> Unit = {}, 
             Toggle("Cold night / frost alert (evening)", s.notifyColdNight) { on -> enableNotification(on) { it.copy(notifyColdNight = on) } }
             Stepper("Cold night: low at or below", "${s.coldNightTemp}°", { repo.update { it.copy(coldNightTemp = it.coldNightTemp - 1) } },
                 { repo.update { it.copy(coldNightTemp = it.coldNightTemp + 1) } })
+            val ports = listOf("") + Linz.PORTS.map { it.name }
+            val portIdx = ports.indexOf(s.tidePort).coerceAtLeast(0)
+            Stepper("Tide port (NZ)", if (s.tidePort.isEmpty()) "Nearest" else s.tidePort,
+                { repo.update { it.copy(tidePort = ports[(portIdx - 1 + ports.size) % ports.size]) } },
+                { repo.update { it.copy(tidePort = ports[(portIdx + 1) % ports.size]) } })
+            Note("Official LINZ predictions from the nearest standard port within 40 km, or the port you pick for places within 150 km of it. Elsewhere tides come from a global model.")
             Toggle("MetService warnings (NZ)", s.notifyWarnings) { on -> enableNotification(on) { it.copy(notifyWarnings = on) } }
             Note("Red and orange warnings can come through quiet hours.")
             HorizontalDivider(Modifier.padding(vertical = 8.dp))

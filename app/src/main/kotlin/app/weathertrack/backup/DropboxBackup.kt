@@ -86,10 +86,13 @@ class DropboxBackup(private val context: Context, private val exporter: DataExpo
             val file = File(context.cacheDir, "backup.db.gz")
             try {
                 val size = exporter.snapshotGzip(file)
+                // Never upload a copy that wouldn't restore.
+                val check = BackupCheck.verify(context, file)
+                if (!check.ok) error("The copy failed its check: ${check.message}")
                 val name = "weathertrack-${LocalDate.now()}.db.gz"
                 upload(token, file, "/$name")
                 prune(token)
-                "Backed up $name (${size / 1024} KB)"
+                "Backed up $name (${size / 1024} KB, checked)"
             } finally {
                 file.delete()
             }
@@ -98,6 +101,43 @@ class DropboxBackup(private val context: Context, private val exporter: DataExpo
         if (result.isSuccess) edit.putLong(LAST_AT, System.currentTimeMillis())
         edit.apply()
         result
+    }
+
+    /**
+     * Restore test: downloads the newest backup, opens it as a database and checks it is intact and
+     * holds what this phone holds (no fewer rows than a week-old copy could). Nothing on the phone changes.
+     */
+    suspend fun testLatest(): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val token = accessToken()
+            val list = rpc("$API/files/list_folder", token, """{"path":""}""")
+            val name = (list["entries"] as? JsonArray).orEmpty()
+                .mapNotNull { (it as? JsonObject)?.str("name") }
+                .filter { it.startsWith("weathertrack-") && it.endsWith(".db.gz") }
+                .maxOrNull() ?: error("No backups in Dropbox yet")
+            val file = File(context.cacheDir, "restore-test.db.gz")
+            try {
+                download(token, "/$name", file)
+                val check = BackupCheck.verify(context, file)
+                if (!check.ok) error("$name doesn't restore: ${check.message}")
+                "$name restores fine: ${check.message}"
+            } finally {
+                file.delete()
+            }
+        }.also { r -> prefs.edit().putString(LAST_TEST, r.getOrElse { "Failed: ${it.message}" }).apply() }
+    }
+
+    fun lastTest(): String? = prefs.getString(LAST_TEST, null)
+
+    private fun download(token: String, path: String, to: File) {
+        val arg = buildJsonObject { put("path", path) }.toString()
+        val req = Request.Builder().url("$CONTENT/files/download").header("Authorization", "Bearer $token")
+            .header("Dropbox-API-Arg", arg).post(ByteArray(0).toRequestBody(null)).build()
+        client.newCall(req).execute().use { r ->
+            if (!r.isSuccessful) error("Dropbox ${r.code}: ${r.body?.string().orEmpty().take(200)}")
+            val body = r.body ?: error("Empty download")
+            to.outputStream().use { out -> body.byteStream().use { it.copyTo(out) } }
+        }
     }
 
     private fun upload(token: String, file: File, path: String) {
@@ -165,6 +205,7 @@ class DropboxBackup(private val context: Context, private val exporter: DataExpo
         private const val REFRESH = "refresh_token"
         private const val LAST_AT = "last_at"
         private const val LAST_RESULT = "last_result"
+        private const val LAST_TEST = "last_test"
         private const val TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
         private const val API = "https://api.dropboxapi.com/2"
         private const val CONTENT = "https://content.dropboxapi.com/2"

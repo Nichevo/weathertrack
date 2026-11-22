@@ -98,8 +98,13 @@ fun TideCard(t: TideSeries, zone: ZoneId, placeLat: Double, placeLon: Double) {
             }
             val dist = km(placeLat, placeLon, t.latitude, t.longitude)
             Text(
-                "Heights against mean sea level, from the nearest sea point (about ${dist.roundToInt()} km away). " +
-                    "A guide only, not for boating.",
+                if (t.port != null) {
+                    "Official predictions for ${t.port} (about ${dist.roundToInt()} km away), heights above chart datum. " +
+                        "${app.weathertrack.core.tides.Linz.ATTRIBUTION}. Not official tide tables for navigation."
+                } else {
+                    "Heights against mean sea level, from the nearest sea point (about ${dist.roundToInt()} km away). " +
+                        "A guide only, not for boating."
+                },
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

@@ -62,6 +62,9 @@ jobs:
       - name: Check database migrations match Room's schema
         run: python3 .github/scripts/check_migrations.py
 
+      - name: Upgrade test through every database migration
+        run: python3 .github/scripts/test_migrations.py
+
       - name: Name the APK
         run: |
           VERSION=$(python3 -c "import json; print(json.load(open('app/build/outputs/apk/release/output-metadata.json'))['elements'][0]['versionName'])")

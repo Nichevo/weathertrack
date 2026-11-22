@@ -8,6 +8,7 @@ import app.weathertrack.core.warnings.Warning
 import app.weathertrack.core.openmeteo.OpenMeteoParser
 import app.weathertrack.core.openmeteo.OpenMeteoUrls
 import app.weathertrack.core.tides.TideSeries
+import app.weathertrack.core.tides.Linz
 import app.weathertrack.core.seasonal.Enso
 import app.weathertrack.core.seasonal.ModelMonth
 import app.weathertrack.core.seasonal.OniMonth
@@ -25,9 +26,30 @@ import app.weathertrack.data.net.HttpResult
  */
 class ExtrasRepository(private val http: HttpFetcher, private val rawDao: RawPullDao) {
 
-    suspend fun tides(place: PlaceEntity, trigger: String = "app"): TideSeries? =
-        cachedOrFetch(place, ENDPOINT_TIDES, TIDES_MAX_AGE_MS, trigger) { OpenMeteoUrls.tides(place.latitude, place.longitude) }
-            ?.let { runCatching { OpenMeteoParser.parseTides(it) }.getOrNull() }
+    /**
+     * In New Zealand, LINZ's official predictions for the nearest tide port (or [portName]); elsewhere,
+     * or if LINZ can't be reached, Open-Meteo's modelled sea level.
+     */
+    suspend fun tides(place: PlaceEntity, trigger: String = "app", portName: String = ""): TideSeries? =
+        runCatching { linzTides(place, trigger, portName) }.getOrNull()
+            ?: cachedOrFetch(place, ENDPOINT_TIDES, TIDES_MAX_AGE_MS, trigger) { OpenMeteoUrls.tides(place.latitude, place.longitude) }
+                ?.let { runCatching { OpenMeteoParser.parseTides(it) }.getOrNull() }
+
+    private suspend fun linzTides(place: PlaceEntity, trigger: String, portName: String): TideSeries? {
+        if (!inNewZealand(place.latitude, place.longitude)) return null
+        // A chosen port only applies to places within 150 km of it, so other NZ places still get their own.
+        val port = Linz.byName(portName)?.takeIf { Linz.distanceKm(place.latitude, place.longitude, it) <= 150 } ?: Linz.nearest(place.latitude, place.longitude)?.first ?: return null
+        val now = System.currentTimeMillis() / 1000
+        val today = java.time.LocalDate.now(Linz.ZONE)
+        // This year's table, plus next year's near New Year so the week ahead is covered.
+        val years = listOf(today.year) + if (today.plusDays(8).year != today.year) listOf(today.year + 1) else emptyList()
+        val events = years.flatMap { y ->
+            val body = cachedOrFetch(place, "linz_tides_${port.name}_$y", LINZ_MAX_AGE_MS, trigger, source = SOURCE_LINZ) { Linz.csvUrl(port, y) }
+                ?: return null
+            Linz.parse(body)
+        }
+        return Linz.series(port, events, now - 6 * 3600, now + 7 * 86400)
+    }
 
     suspend fun spread(place: PlaceEntity, trigger: String = "app"): List<DaySpread> {
         val body = cachedOrFetch(place, ENDPOINT_SPREAD, SPREAD_MAX_AGE_MS, trigger, fallbackUrl = {
@@ -57,7 +79,7 @@ class ExtrasRepository(private val http: HttpFetcher, private val rawDao: RawPul
         val items = runCatching { Cap.feed(feed) }.getOrDefault(emptyList())
         return items.mapNotNull { item ->
             // Each CAP document never changes once issued, so a stored copy is reused.
-            val body = rawDao.latestForUrl(item.link)?.body ?: runCatching { http.get(item.link) }.getOrNull()?.also {
+            val body = rawDao.latestForUrl(item.link)?.text ?: runCatching { http.get(item.link) }.getOrNull()?.also {
                 rawDao.insert(raw(place, ENDPOINT_WARNING_ALERT, it, trigger, SOURCE_METSERVICE))
             }?.takeIf { it.status == 200 }?.body
             body?.let { runCatching { Cap.alert(it, item.link) }.getOrNull() }
@@ -83,14 +105,14 @@ class ExtrasRepository(private val http: HttpFetcher, private val rawDao: RawPul
         fallbackUrl: (() -> String)? = null, source: String = WeatherRepository.SOURCE, url: () -> String,
     ): String? {
         val cached = rawDao.latest(place.id, source, endpoint)
-        if (cached != null && System.currentTimeMillis() - cached.fetchedAt < maxAgeMs) return cached.body
+        if (cached != null && System.currentTimeMillis() - cached.fetchedAt < maxAgeMs) return cached.text
         var r = runCatching { http.get(url()) }.getOrNull()
         r?.let { rawDao.insert(raw(place, endpoint, it, trigger, source)) }
         if (r != null && r.status == 400 && fallbackUrl != null) {
             // A variable or model name the API doesn't know here: retry with the safe set.
             r = runCatching { http.get(fallbackUrl()) }.getOrNull()?.also { rawDao.insert(raw(place, endpoint, it, trigger, source)) }
         }
-        return r?.takeIf { it.status == 200 }?.body ?: cached?.body
+        return r?.takeIf { it.status == 200 }?.body ?: cached?.text
     }
 
     private fun raw(place: PlaceEntity, endpoint: String, r: HttpResult, trigger: String, source: String = WeatherRepository.SOURCE) = RawPullEntity(
@@ -101,6 +123,9 @@ class ExtrasRepository(private val http: HttpFetcher, private val rawDao: RawPul
 
     companion object {
         const val ENDPOINT_TIDES = "marine_tides"
+        const val SOURCE_LINZ = "linz"
+        /** A port's yearly table doesn't change. */
+        private const val LINZ_MAX_AGE_MS = 30 * 86_400_000L
         const val ENDPOINT_SPREAD = "model_spread"
         private const val TIDES_MAX_AGE_MS = 12 * 3600_000L
         private const val SPREAD_MAX_AGE_MS = 3 * 3600_000L

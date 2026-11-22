@@ -14,6 +14,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
@@ -31,6 +34,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.weathertrack.BuildConfig
 import app.weathertrack.WeatherApp
+import app.weathertrack.core.storage.KeepOlder
+import app.weathertrack.core.storage.Storage
 import app.weathertrack.export.DataExporter
 import app.weathertrack.ui.Format
 import kotlinx.coroutines.launch
@@ -50,6 +55,12 @@ fun DataScreen(onBack: () -> Unit = {}) {
     val hours by db.forecastDao().hourCount().collectAsState(initial = 0)
     val days by db.forecastDao().dayCount().collectAsState(initial = 0)
     val observed by db.observedDayDao().count().collectAsState(initial = 0)
+    val zipped by db.rawPullDao().compressedBytes().collectAsState(initial = 0L)
+    val settingsRepo = app.container.settings
+    val appSettings by settingsRepo.settings.collectAsState()
+    var tidying by remember { mutableStateOf(false) }
+    var lastTidy by remember { mutableStateOf(app.container.storage.last()) }
+    var fileBytes by remember { mutableStateOf(app.container.storage.fileBytes()) }
     var status by remember { mutableStateOf<String?>(null) }
     var pendingTable by remember { mutableStateOf<DataExporter.Table?>(null) }
 
@@ -83,11 +94,50 @@ fun DataScreen(onBack: () -> Unit = {}) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Stored on this phone", style = MaterialTheme.typography.titleMedium)
-                    Text("$pulls raw API responses (${Format.bytes(bytes)} of JSON)")
+                    Text("$pulls raw API responses (${Format.bytes(bytes)} of JSON" +
+                        (if (zipped > 0) ", plus ${Format.bytes(zipped)} of older ones gzipped" else "") + ")")
                     Text("$hours hourly forecast values as issued")
                     Text("$days daily forecast values as issued")
                     Text("$observed observed history days")
                     first?.let { Text("Collecting since ${Format.ago(it)}") }
+                    Text("Database file: ${Format.bytes(fileBytes)}")
+                }
+            }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Keeping it tidy", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Once a week, while the phone is charging and idle, responses older than " +
+                            "${Storage.COMPRESS_AFTER_DAYS} days are gzipped (nothing is lost, and exports unzip them) " +
+                            "and failed downloads are removed. Forecasts older than ${Storage.FULL_DETAIL_DAYS} days keep:",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    val options = KeepOlder.entries
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        options.forEachIndexed { i, k ->
+                            SegmentedButton(
+                                selected = appSettings.keepOlder == k.key,
+                                onClick = { settingsRepo.update { it.copy(keepOlder = k.key) } },
+                                shape = SegmentedButtonDefaults.itemShape(i, options.size),
+                            ) { Text(k.label, style = MaterialTheme.typography.labelSmall) }
+                        }
+                    }
+                    lastTidy?.let { Text("Last tidy-up ${Format.ago(it.at)}: ${it.describe()}.", style = MaterialTheme.typography.bodySmall) }
+                    OutlinedButton(
+                        enabled = !tidying,
+                        onClick = {
+                            tidying = true
+                            scope.launch {
+                                status = runCatching {
+                                    app.container.storage.run(KeepOlder.of(appSettings.keepOlder), vacuum = true)
+                                }.fold({ "Tidy-up done: ${it.describe()}." }, { "Tidy-up failed: ${it.message}" })
+                                lastTidy = app.container.storage.last()
+                                fileBytes = app.container.storage.fileBytes()
+                                tidying = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(if (tidying) "Tidying…" else "Tidy up now") }
                 }
             }
             Text(

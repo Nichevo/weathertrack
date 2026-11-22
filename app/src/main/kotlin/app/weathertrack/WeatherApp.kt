@@ -9,6 +9,8 @@ import kotlinx.coroutines.launch
 import androidx.glance.appwidget.updateAll
 import app.weathertrack.backup.DropboxBackup
 import app.weathertrack.data.UpdateChecker
+import app.weathertrack.data.Diagnostics
+import app.weathertrack.data.StorageMaintenance
 import app.weathertrack.data.ClimateRepository
 import app.weathertrack.data.ExtrasRepository
 import app.weathertrack.data.ForecastCheckRepository
@@ -64,6 +66,8 @@ class AppContainer(app: Application) {
     val radarSpot = RadarSpotChecker(rainMap, tiles)
     val settings = SettingsRepository(app)
     val updates = UpdateChecker(app, http)
+    val storage = StorageMaintenance(app, database)
+    val diagnostics = Diagnostics(app, database, storage)
 }
 
 class WeatherApp : Application() {
@@ -72,6 +76,7 @@ class WeatherApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        Diagnostics.installCrashLog(this)
         container = AppContainer(this)
         Notifier.createChannels(this)
         LockGlance.createChannel(this)

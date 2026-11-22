@@ -34,12 +34,20 @@ class DataExporter(private val context: Context, private val db: AppDatabase) {
         var rows = 0
         BufferedWriter(OutputStreamWriter(out, Charsets.UTF_8)).use { w ->
             db.openHelper.readableDatabase.query("SELECT * FROM ${table.sqlName}").use { c ->
-                w.write(c.columnNames.joinToString(",") { csv(it) })
+                // Older raw responses are stored gzipped; the CSV always has the plain text in "body".
+                val gzCol = c.columnNames.indexOf("body_gz")
+                val bodyCol = c.columnNames.indexOf("body")
+                val cols = (0 until c.columnCount).filter { it != gzCol }
+                w.write(cols.joinToString(",") { csv(c.columnNames[it]) })
                 w.newLine()
                 while (c.moveToNext()) {
-                    for (i in 0 until c.columnCount) {
-                        if (i > 0) w.write(",")
-                        w.write(cell(c, i))
+                    cols.forEachIndexed { k, i ->
+                        if (k > 0) w.write(",")
+                        if (i == bodyCol && gzCol >= 0 && c.getString(i).isNullOrEmpty() && !c.isNull(gzCol)) {
+                            w.write(csv(app.weathertrack.core.storage.Storage.gunzip(c.getBlob(gzCol))))
+                        } else {
+                            w.write(cell(c, i))
+                        }
                     }
                     w.newLine()
                     rows++

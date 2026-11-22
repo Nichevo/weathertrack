@@ -141,7 +141,7 @@ class DetailWidget : GlanceAppWidget() {
             jacket = JacketCalculator.evaluate(f.hourly, now, 3, f.quarterHourly, cfg.jacketThresholds).verdict,
             triggers = TriggerCalculator.evaluate(f.hourly, f.quarterHourly, now, cfg.triggerThresholds) { Format.hour(it, zone) },
             walk = WalkPlanner.upcoming(f.hourly, cfg.walkWindows, zone, now, cfg.walkThresholds, count = 1).firstOrNull(),
-            tide = runCatching { container.extras.tides(place, "widget") }.getOrNull()
+            tide = runCatching { container.extras.tides(place, "widget", container.settings.current.tidePort) }.getOrNull()
                 ?.let { app.weathertrack.core.tides.Tides.now(it, now) }?.next
                 ?.let { (if (it.high) "High " else "Low ") + Format.time(it.time, zone).replace(" ", "").lowercase() },
             clock = container.places.all().firstOrNull { it.id == cfg.clockPlaceId }?.let { it.name to Format.zone(it.timezone) },

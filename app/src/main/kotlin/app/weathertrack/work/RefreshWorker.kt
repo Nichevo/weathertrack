@@ -39,7 +39,8 @@ class RefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorke
 
         fun schedule(context: Context, minutes: Int = 60) {
             val request = PeriodicWorkRequestBuilder<RefreshWorker>(minutes.coerceAtLeast(15).toLong(), TimeUnit.MINUTES)
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                // The hourly record can skip a pull or two when the battery is low.
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).setRequiresBatteryNotLow(true).build())
                 .build()
             WorkManager.getInstance(context)
                 .enqueueUniquePeriodicWork(UNIQUE_NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
