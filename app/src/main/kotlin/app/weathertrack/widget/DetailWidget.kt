@@ -57,6 +57,8 @@ data class WidgetSnapshot(
     val jacket: Verdict,
     val triggers: List<Trigger>,
     val walk: WalkForecast?,
+    /** e.g. "Low 5:42pm", the next tide turn; null away from the sea. */
+    val tide: String? = null,
 )
 
 private object Palette {
@@ -99,6 +101,9 @@ class DetailWidget : GlanceAppWidget() {
             jacket = JacketCalculator.evaluate(f.hourly, now, 3, f.quarterHourly, cfg.jacketThresholds).verdict,
             triggers = TriggerCalculator.evaluate(f.hourly, f.quarterHourly, now, cfg.triggerThresholds) { Format.hour(it, zone) },
             walk = WalkPlanner.upcoming(f.hourly, cfg.walkWindows, zone, now, cfg.walkThresholds, count = 1).firstOrNull(),
+            tide = runCatching { container.extras.tides(place, "widget") }.getOrNull()
+                ?.let { app.weathertrack.core.tides.Tides.now(it, now) }?.next
+                ?.let { (if (it.high) "High " else "Low ") + Format.time(it.time, zone).replace(" ", "").lowercase() },
         )
     }
 }
@@ -194,6 +199,10 @@ private fun Badges(s: WidgetSnapshot) {
                 WalkRating.FAIR -> Badge(label, Palette.amberSoft, Palette.onAmber)
                 WalkRating.POOR -> Badge(label, Palette.redSoft, Palette.red)
             }
+        }
+        s.tide?.let {
+            Spacer(GlanceModifier.width(4.dp))
+            Badge(it, Color(0xFFD7EEF2), Color(0xFF0B4F5C))
         }
         s.triggers.forEach { t ->
             Spacer(GlanceModifier.width(4.dp))

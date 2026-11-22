@@ -235,6 +235,42 @@ object OpenMeteoParser {
         }
     }
 
+    /** Parses a [OpenMeteoUrls.tides] response; null when the spot has no sea level data. */
+    fun parseTides(body: String): app.weathertrack.core.tides.TideSeries? {
+        val root = json.parseToJsonElement(body).jsonObject
+        if ((root["error"] as? JsonPrimitive)?.contentOrNull == "true") throw ParseException(root.str("reason") ?: "API error")
+        val h = root.obj("hourly") ?: return null
+        val times = h.longs("time")
+        val heights = h.doubles("sea_level_height_msl")
+        val points = times.mapIndexedNotNull { i, t ->
+            val v = heights.at(i)
+            if (t == null || v == null) null else app.weathertrack.core.tides.TidePoint(t, v)
+        }
+        if (points.size < 6) return null
+        return app.weathertrack.core.tides.TideSeries(points, root.num("latitude") ?: 0.0, root.num("longitude") ?: 0.0)
+    }
+
+    /** One day's high and rain from each model, keyed by model name. */
+    data class ModelDay(val date: String, val highs: Map<String, Double>, val rain: Map<String, Double>)
+
+    /** Parses a [OpenMeteoUrls.modelSpread] response. */
+    fun parseModelSpread(body: String, models: List<String>): List<ModelDay> {
+        val root = json.parseToJsonElement(body).jsonObject
+        if ((root["error"] as? JsonPrimitive)?.contentOrNull == "true") throw ParseException(root.str("reason") ?: "API error")
+        val d = root.obj("daily") ?: return emptyList()
+        val dates = (d["time"] as? JsonArray)?.map { (it as? JsonPrimitive)?.contentOrNull } ?: return emptyList()
+        val highs = models.associateWith { d.doubles("temperature_2m_max_$it") }
+        val rain = models.associateWith { d.doubles("precipitation_sum_$it") }
+        return dates.mapIndexedNotNull { i, date ->
+            date ?: return@mapIndexedNotNull null
+            ModelDay(
+                date,
+                highs.mapNotNull { (m, v) -> v.at(i)?.let { m to it } }.toMap(),
+                rain.mapNotNull { (m, v) -> v.at(i)?.let { m to it } }.toMap(),
+            )
+        }
+    }
+
     fun parseGeocoding(body: String): List<GeoPlace> {
         val root = json.parseToJsonElement(body).jsonObject
         val results = root["results"] as? JsonArray ?: return emptyList()

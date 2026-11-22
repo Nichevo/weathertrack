@@ -45,6 +45,9 @@ data class HomeState(
     /** The user's own report if made in the last 45 minutes. */
     val myReport: app.weathertrack.core.accuracy.RainReport? = null,
     val reportMessage: String? = null,
+    val tides: app.weathertrack.core.tides.TideSeries? = null,
+    /** How far apart several weather models are, per day. */
+    val spread: List<app.weathertrack.core.accuracy.DaySpread> = emptyList(),
 )
 
 class HomeViewModel(
@@ -54,6 +57,7 @@ class HomeViewModel(
     private val settings: SettingsRepository,
     private val forecastCheck: app.weathertrack.data.ForecastCheckRepository,
     private val radarSpot: app.weathertrack.map.RadarSpotChecker,
+    private val extras: app.weathertrack.data.ExtrasRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state
@@ -78,11 +82,19 @@ class HomeViewModel(
             placeRepo.ensureDefaults()
             val place = placeRepo.selected() ?: return@launch
             val cached = weather.cachedForecast(place)
-            _state.update { it.copy(place = place, stored = cached, error = null, radar = if (it.place?.id == place.id) it.radar else null) }
+            _state.update {
+                val same = it.place?.id == place.id
+                it.copy(
+                    place = place, stored = cached, error = null, radar = if (same) it.radar else null,
+                    tides = if (same) it.tides else null, spread = if (same) it.spread else emptyList(),
+                    trust = if (same) it.trust else null, highBands = if (same) it.highBands else emptyMap(),
+                )
+            }
             recompute()
             updateWidgets() // the widget follows the selected place
             if (cached == null || System.currentTimeMillis() - cached.fetchedAtMs > 20 * 60_000) refresh("app")
             loadRadar(place)
+            launch { loadExtras(place) }
             loadBands(place)
         }
     }
@@ -100,6 +112,13 @@ class HomeViewModel(
         }.getOrElse { runCatching { forecastCheck.highBands(place) }.getOrDefault(emptyMap()) }
         if (_state.value.place?.id == place.id) _state.update { it.copy(highBands = bands) }
         loadTrust(place)
+    }
+
+    private suspend fun loadExtras(place: PlaceEntity) {
+        val tides = runCatching { extras.tides(place) }.getOrNull()
+        if (_state.value.place?.id == place.id) _state.update { it.copy(tides = tides) }
+        val spread = runCatching { extras.spread(place) }.getOrDefault(emptyList())
+        if (_state.value.place?.id == place.id) _state.update { it.copy(spread = spread) }
     }
 
     private suspend fun loadTrust(place: PlaceEntity) {
@@ -173,7 +192,7 @@ class HomeViewModel(
                 val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as WeatherApp
                 HomeViewModel(
                     app.container.weather, app.container.places, app.container.updateWidgets, app.container.settings,
-                    app.container.forecastCheck, app.container.radarSpot,
+                    app.container.forecastCheck, app.container.radarSpot, app.container.extras,
                 )
             }
         }

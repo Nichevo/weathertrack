@@ -74,6 +74,7 @@ import app.weathertrack.ui.theme.JacketAmberContainer
 import app.weathertrack.ui.theme.OnClearBlueContainer
 import app.weathertrack.ui.theme.OnJacketAmberContainer
 import java.time.ZoneId
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -143,9 +144,11 @@ fun HomeScreen(
                 item { NowRow(forecast) }
                 item { SectionTitle("Next hours") }
                 item { HourStrip(forecast, zone) }
+                state.tides?.let { t -> state.place?.let { p -> item { TideCard(t, zone, p.latitude, p.longitude) } } }
                 item { SectionTitle("Next 7 days") }
                 val today = java.time.LocalDate.now(zone)
-                items(forecast.daily) { d -> DayRow(d, bandFor(state.highBands, today, d.date)) }
+                val spreadByDate = state.spread.associateBy { it.date }
+                items(forecast.daily) { d -> DayRow(d, bandFor(state.highBands, today, d.date), spreadByDate[d.date]) }
             }
             state.stored?.let { s ->
                 item {
@@ -220,6 +223,9 @@ private fun SureCard(state: HomeState, zone: ZoneId) {
                     val diff = happened * 100 - chance
                     Text("Rain: forecast up to ${Format.pct(chance)} by ${Format.time(j.windowEnd, zone)}. " +
                         "When it has said that here, it rained ${Format.pct(happened * 100)} of the time ($hours hours).")
+                    trust?.let { tr -> app.weathertrack.core.accuracy.RainAdjust.adjusted(chance, tr.reliability) }?.let { adj ->
+                        Text("Adjusted for here: about ${Format.pct(adj)}", fontWeight = FontWeight.Medium)
+                    }
                     val tip = when {
                         diff <= -15 -> "Rain is less likely than the forecast suggests."
                         diff >= 15 -> "Rain is more likely than the forecast suggests."
@@ -238,6 +244,18 @@ private fun SureCard(state: HomeState, zone: ZoneId) {
                     app.weathertrack.ui.accuracy.ConfidenceTag(band.confidence)
                 }
             }
+            // Several models side by side: when they disagree, the forecast is less certain.
+            val spreadToday = state.spread.firstOrNull { it.date == today }
+            val spreadTomorrow = state.spread.firstOrNull { it.date == java.time.LocalDate.now(zone).plusDays(1).toString() }
+            listOfNotNull(spreadToday?.let { "Today" to it }, spreadTomorrow?.let { "Tomorrow" to it }).forEach { (label, sp) ->
+                if (sp.models < 2) return@forEach
+                val split = sp.rainDisagrees || sp.highsDisagree
+                Text(
+                    "$label, ${sp.models} models: high ${Format.temp(sp.highMin)} to ${Format.temp(sp.highMax)}, " +
+                        "rain ${spreadMm(sp.rainMin)} to ${spreadMm(sp.rainMax)}" + if (split) " (they disagree)" else " (they agree)",
+                    fontWeight = if (split) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
             trust?.jacket?.takeIf { it.decided > 0 }?.let { js ->
                 Text("Jacket call right on ${js.right} of ${js.decided} mornings lately (${Format.pct((js.share ?: 0.0) * 100)}).")
             }
@@ -251,6 +269,12 @@ private fun SureCard(state: HomeState, zone: ZoneId) {
             }
         }
     }
+}
+
+private fun spreadMm(v: Double?) = when {
+    v == null -> "–"
+    v < 0.95 -> if (v < 0.05) "0" else "<1 mm"
+    else -> "${v.roundToInt()} mm"
 }
 
 /** The band for a day [date] ahead of [today]; between learned leads, the next longer one is used. */
@@ -439,7 +463,7 @@ private fun RainBar(prob: Double, mm: Double?) {
 }
 
 @Composable
-private fun DayRow(d: DayPoint, band: Band?) {
+private fun DayRow(d: DayPoint, band: Band?, spread: app.weathertrack.core.accuracy.DaySpread? = null) {
     Column {
         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(Format.day(d.date), Modifier.width(64.dp), fontWeight = FontWeight.Medium)
@@ -461,6 +485,19 @@ private fun DayRow(d: DayPoint, band: Band?) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 ConfidenceTag(band.confidence)
+            }
+        }
+        if (spread != null && (spread.rainDisagrees || spread.highsDisagree)) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                Spacer(Modifier.width(64.dp))
+                Text(
+                    "Models split: " + listOfNotNull(
+                        if (spread.highsDisagree) "highs ${Format.temp(spread.highMin)} to ${Format.temp(spread.highMax)}" else null,
+                        if (spread.rainDisagrees) "rain ${spreadMm(spread.rainMin)} to ${spreadMm(spread.rainMax)} (${spread.wetModels} of ${spread.models} wet)" else null,
+                    ).joinToString(", "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF8C5A00),
+                )
             }
         }
         HorizontalDivider()
