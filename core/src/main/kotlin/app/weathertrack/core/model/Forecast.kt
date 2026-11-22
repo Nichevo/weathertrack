@@ -15,6 +15,9 @@ data class HourPoint(
     val cloudCover: Double?,
     val humidity: Double?,
     val isDay: Boolean?,
+    val cloudCoverLow: Double? = null,
+    val cloudCoverMid: Double? = null,
+    val cloudCoverHigh: Double? = null,
 )
 
 /** One 15-minute step, used for the short-term rain nowcast. */

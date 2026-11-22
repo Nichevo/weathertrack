@@ -57,6 +57,9 @@ data class ForecastHourEntity(
     @androidx.room.ColumnInfo(name = "uv_index") val uvIndex: Double?,
     @androidx.room.ColumnInfo(name = "cloud_cover") val cloudCover: Double?,
     val humidity: Double?,
+    @androidx.room.ColumnInfo(name = "cloud_cover_low") val cloudCoverLow: Double? = null,
+    @androidx.room.ColumnInfo(name = "cloud_cover_mid") val cloudCoverMid: Double? = null,
+    @androidx.room.ColumnInfo(name = "cloud_cover_high") val cloudCoverHigh: Double? = null,
 )
 
 /** One daily forecast value exactly as issued in a given pull. */

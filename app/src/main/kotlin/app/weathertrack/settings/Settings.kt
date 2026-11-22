@@ -3,6 +3,8 @@ package app.weathertrack.settings
 import android.content.Context
 import app.weathertrack.core.alerts.TriggerThresholds
 import app.weathertrack.core.jacket.JacketThresholds
+import app.weathertrack.core.walk.WalkThresholds
+import app.weathertrack.core.walk.WalkWindow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.time.LocalTime
@@ -28,7 +30,22 @@ data class AppSettings(
     val quietEnd: LocalTime = LocalTime.of(7, 0),
     // Background refresh of all saved places, in minutes.
     val refreshMinutes: Int = 60,
+    // Walks: two regular windows, local time.
+    val walk1Start: LocalTime = LocalTime.of(7, 0),
+    val walk1End: LocalTime = LocalTime.of(9, 0),
+    val walk2Start: LocalTime = LocalTime.of(17, 0),
+    val walk2End: LocalTime = LocalTime.of(19, 0),
+    val petHotFeelsLike: Int = 24,
+    val notifyWalks: Boolean = false,
+    val walkLeadMinutes: Int = 30,
+    val walkNotifyOnlyIfNotGood: Boolean = true,
 ) {
+    val walkWindows: List<WalkWindow>
+        get() = listOf(WalkWindow("Morning walk", walk1Start, walk1End), WalkWindow("Evening walk", walk2Start, walk2End))
+
+    val walkThresholds: WalkThresholds
+        get() = WalkThresholds(petHotFeelsLike = petHotFeelsLike.toDouble(), coldFeelsLike = coldFeelsLike.toDouble())
+
     val jacketThresholds: JacketThresholds
         get() = JacketThresholds(
             rainProbabilityYes = jacketRainChance.toDouble(),
@@ -48,7 +65,7 @@ data class AppSettings(
             rainSoonMinutes = rainSoonMinutes,
         )
 
-    val anyAlertOn: Boolean get() = notifyRainSoon || notifyHot || notifyCold
+    val anyAlertOn: Boolean get() = notifyRainSoon || notifyHot || notifyCold || notifyWalks
 }
 
 class SettingsRepository(context: Context) {
@@ -83,6 +100,14 @@ class SettingsRepository(context: Context) {
             quietStart = time("quiet_start", d.quietStart),
             quietEnd = time("quiet_end", d.quietEnd),
             refreshMinutes = prefs.getInt("refresh_minutes", d.refreshMinutes),
+            walk1Start = time("walk1_start", d.walk1Start),
+            walk1End = time("walk1_end", d.walk1End),
+            walk2Start = time("walk2_start", d.walk2Start),
+            walk2End = time("walk2_end", d.walk2End),
+            petHotFeelsLike = prefs.getInt("pet_hot_feels", d.petHotFeelsLike),
+            notifyWalks = prefs.getBoolean("notify_walks", d.notifyWalks),
+            walkLeadMinutes = prefs.getInt("walk_lead_minutes", d.walkLeadMinutes),
+            walkNotifyOnlyIfNotGood = prefs.getBoolean("walk_only_not_good", d.walkNotifyOnlyIfNotGood),
         )
     }
 
@@ -103,6 +128,14 @@ class SettingsRepository(context: Context) {
             .putString("quiet_start", s.quietStart.toString())
             .putString("quiet_end", s.quietEnd.toString())
             .putInt("refresh_minutes", s.refreshMinutes)
+            .putString("walk1_start", s.walk1Start.toString())
+            .putString("walk1_end", s.walk1End.toString())
+            .putString("walk2_start", s.walk2Start.toString())
+            .putString("walk2_end", s.walk2End.toString())
+            .putInt("pet_hot_feels", s.petHotFeelsLike)
+            .putBoolean("notify_walks", s.notifyWalks)
+            .putInt("walk_lead_minutes", s.walkLeadMinutes)
+            .putBoolean("walk_only_not_good", s.walkNotifyOnlyIfNotGood)
             .apply()
     }
 }

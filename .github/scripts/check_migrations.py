@@ -25,4 +25,13 @@ for table in MIGRATED_TABLES:
         if s not in migrations:
             print(f"Missing or different in Migrations.kt:\n  {s}")
             failed = True
+# Columns added with ALTER TABLE must match the type and nullability Room generates.
+for table, column, decl in re.findall(r"ALTER TABLE `(\w+)` ADD COLUMN `(\w+)` ([A-Z]+(?: NOT NULL)?)", migrations):
+    create = next((s for s in statements if s.startswith(f"CREATE TABLE IF NOT EXISTS `{table}`")), "")
+    m = re.search(rf"`{column}` ([A-Z]+(?: NOT NULL)?)", create)
+    generated_decl = m.group(1) if m else None
+    if generated_decl != decl:
+        print(f"{table}.{column}: migration adds '{decl}', Room expects '{generated_decl}'")
+        failed = True
+
 sys.exit(1 if failed else 0)
