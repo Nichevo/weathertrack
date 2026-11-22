@@ -206,8 +206,10 @@ private fun VerdictCard(j: JacketResult, zone: ZoneId) {
                     )
                 }
             }
-            j.rainStartsAt?.let {
-                Text("Rain likely from about ${Format.time(it, zone)}", fontWeight = FontWeight.Medium)
+            j.rainStartsAt?.let { start ->
+                val until = j.rainEndsAt?.let { " until about ${Format.time(it, zone)}" } ?: ""
+                val text = if (j.rainingNow) "Raining now$until" else "Rain likely from about ${Format.time(start, zone)}$until"
+                Text(text, fontWeight = FontWeight.Medium)
             }
             if (j.reasons.isEmpty()) {
                 Text("Dry, light winds and mild for the next ${j.windowHours} hours.")

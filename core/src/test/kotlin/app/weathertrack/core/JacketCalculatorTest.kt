@@ -54,6 +54,15 @@ class JacketCalculatorTest {
         assertEquals(start + 5 * 900L, r.rainStartsAt)
     }
 
+    @Test fun rainAlreadyFallingReadsAsNowWithEnd() {
+        // Raining in the quarter that started before now, dry from the 4th quarter.
+        val q = (0 until 16).map { QuarterHourPoint(start + it * 900L, if (it < 3) 0.4 else 0.0) }
+        val r = JacketCalculator.evaluate((0..10).map { hour(it) }, start + 420, 3, q)
+        assertEquals(start, r.rainStartsAt)
+        assertEquals(true, r.rainingNow)
+        assertEquals(start + 3 * 900L, r.rainEndsAt)
+    }
+
     @Test fun noDataGivesNoVerdictAndNulls() {
         val r = JacketCalculator.evaluate(emptyList(), start, 3)
         assertEquals(Verdict.NO, r.verdict)

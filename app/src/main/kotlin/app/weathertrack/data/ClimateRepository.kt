@@ -7,6 +7,7 @@ import androidx.room.withTransaction
 import app.weathertrack.core.climate.ClimateDay
 import app.weathertrack.core.climate.EnergyCsv
 import app.weathertrack.core.climate.EnergyImport
+import app.weathertrack.core.history.SyncPlan
 import app.weathertrack.core.openmeteo.OpenMeteoParser
 import app.weathertrack.core.openmeteo.OpenMeteoUrls
 import app.weathertrack.data.db.AppDatabase
@@ -14,7 +15,7 @@ import app.weathertrack.data.db.ClimateDayEntity
 import app.weathertrack.data.db.EnergyDayEntity
 import app.weathertrack.data.db.PlaceEntity
 import app.weathertrack.data.db.RawPullEntity
-import app.weathertrack.data.net.HttpFetcher
+import app.weathertrack.data.net.ArchiveClient
 import app.weathertrack.data.net.HttpResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -29,7 +30,7 @@ import java.time.ZoneOffset
 class ClimateRepository(
     context: Context,
     private val db: AppDatabase,
-    private val http: HttpFetcher,
+    private val archive: ArchiveClient,
 ) {
     private val appContext = context.applicationContext
     private val dao = db.climateDayDao()
@@ -43,31 +44,31 @@ class ClimateRepository(
     fun syncedRecently(placeId: Long): Boolean =
         System.currentTimeMillis() - prefs.getLong("synced_$placeId", 0L) < 12 * 3600_000L
 
-    /** Fetches every missing day up to two days ago. Returns the number of days stored. */
-    suspend fun sync(place: PlaceEntity, onProgress: (Int, Int) -> Unit = { _, _ -> }): Int {
+    /** Fetches every missing day up to two days ago, newest first. Returns the number of days stored. */
+    suspend fun sync(
+        place: PlaceEntity,
+        onProgress: (Int, Int) -> Unit = { _, _ -> },
+        onWait: (Int) -> Unit = {},
+    ): Int {
         val end = LocalDate.now(ZoneOffset.UTC).minusDays(2)
-        val start = dao.lastDate(place.id)?.let { LocalDate.parse(it).plusDays(1) } ?: FIRST_DAY
-        var stored = 0
-        if (!start.isAfter(end)) {
-            val chunks = generateSequence(start) { it.plusYears(CHUNK_YEARS) }
-                .takeWhile { !it.isAfter(end) }
-                .map { from -> from to minOf(from.plusYears(CHUNK_YEARS).minusDays(1), end) }
-                .toList()
-            chunks.forEachIndexed { i, (from, to) ->
-                onProgress(i, chunks.size)
-                stored += fetchChunk(place, from, to)
-            }
-            onProgress(chunks.size, chunks.size)
+        val stored = dao.dates(place.id).mapTo(HashSet()) { LocalDate.parse(it) }
+        // Newest first, so this month and recent years show up straight away.
+        val chunks = SyncPlan.chunks(stored, FIRST_DAY, end, CHUNK_DAYS)
+        var added = 0
+        chunks.forEachIndexed { i, (from, to) ->
+            onProgress(i, chunks.size)
+            added += fetchChunk(place, from, to, onWait)
         }
+        onProgress(chunks.size, chunks.size)
         prefs.edit().putLong("synced_${place.id}", System.currentTimeMillis()).apply()
-        return stored
+        return added
     }
 
-    private suspend fun fetchChunk(place: PlaceEntity, from: LocalDate, to: LocalDate): Int {
-        var result = fetch(place, from, to, OpenMeteoUrls.CLIMATE_DAILY_VARS)
+    private suspend fun fetchChunk(place: PlaceEntity, from: LocalDate, to: LocalDate, onWait: (Int) -> Unit): Int {
+        var result = fetch(place, from, to, OpenMeteoUrls.CLIMATE_DAILY_VARS, onWait)
         if (result.status == 400) {
             // The archive rejected a variable: fall back to the core set (no humidity or cloud).
-            result = fetch(place, from, to, OpenMeteoUrls.CLIMATE_SAFE_DAILY_VARS)
+            result = fetch(place, from, to, OpenMeteoUrls.CLIMATE_SAFE_DAILY_VARS, onWait)
         }
         if (result.status != 200) throw IOException("Climate download returned HTTP ${result.status}")
         // Days the archive has not filled in yet come back empty; they are fetched again next time.
@@ -86,8 +87,8 @@ class ClimateRepository(
         }
     }
 
-    private suspend fun fetch(place: PlaceEntity, from: LocalDate, to: LocalDate, vars: List<String>) =
-        http.get(OpenMeteoUrls.archiveClimate(place.latitude, place.longitude, from.toString(), to.toString(), vars))
+    private suspend fun fetch(place: PlaceEntity, from: LocalDate, to: LocalDate, vars: List<String>, onWait: (Int) -> Unit) =
+        archive.get(OpenMeteoUrls.archiveClimate(place.latitude, place.longitude, from.toString(), to.toString(), vars), onWait)
             .also { if (it.status != 200) rawDao.insert(raw(place, it)) }
 
     private fun raw(place: PlaceEntity, result: HttpResult) = RawPullEntity(
@@ -123,6 +124,7 @@ class ClimateRepository(
     companion object {
         const val ENDPOINT_CLIMATE = "archive_climate"
         val FIRST_DAY: LocalDate = LocalDate.of(1991, 1, 1)
-        private const val CHUNK_YEARS = 10L
+        /** About 5 years: small enough to stay under Open-Meteo's per-minute weight. */
+        private const val CHUNK_DAYS = 1826
     }
 }

@@ -37,7 +37,12 @@ data class JacketResult(
     val minFeelsLike: Double?,
     /** Epoch seconds when the 15-minute nowcast first shows rain, if within the window. */
     val rainStartsAt: Long?,
-)
+    /** Epoch seconds when that rain is next shown to stop, if the nowcast reaches that far. */
+    val rainEndsAt: Long? = null,
+) {
+    /** True when the rain has already started (the first wet 15-minute step began at or before now). */
+    val rainingNow: Boolean get() = rainStartsAt != null && rainStartsAt <= windowStart
+}
 
 object JacketCalculator {
     /** Minimum rain in a 15-minute step to count as "rain starting". */
@@ -61,10 +66,14 @@ object JacketCalculator {
         val totalRain = window.mapNotNull { it.precipitation }.takeIf { it.isNotEmpty() }?.sum()
         val maxGust = window.mapNotNull { it.windGusts }.maxOrNull()
         val minFeels = window.mapNotNull { it.apparentTemperature }.minOrNull()
-        val rainStart = quarterHours
-            .filter { it.time + 900 > nowEpochSeconds && it.time < windowEnd }
+        val upcoming = quarterHours.filter { it.time + 900 > nowEpochSeconds }.sortedBy { it.time }
+        val rainStart = upcoming
+            .filter { it.time < windowEnd }
             .firstOrNull { (it.precipitation ?: 0.0) >= NOWCAST_RAIN_MM }
             ?.time
+        val rainEnd = rainStart?.let { start ->
+            upcoming.firstOrNull { it.time > start && (it.precipitation ?: 0.0) < NOWCAST_RAIN_MM }?.time
+        }
 
         val t = thresholds
         val reasons = buildList {
@@ -97,6 +106,7 @@ object JacketCalculator {
             maxGustKmh = maxGust,
             minFeelsLike = minFeels,
             rainStartsAt = rainStart,
+            rainEndsAt = rainEnd,
         )
     }
 

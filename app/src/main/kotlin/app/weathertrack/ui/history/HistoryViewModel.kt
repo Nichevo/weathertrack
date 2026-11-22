@@ -27,6 +27,8 @@ data class HistoryState(
     val range: ObservedRange? = null,
     val syncing: Boolean = false,
     val progress: Pair<Int, Int>? = null,
+    /** Seconds left while waiting out Open-Meteo's per-minute limit. */
+    val waitSeconds: Int? = null,
     val error: String? = null,
     val month: YearMonth = YearMonth.now(),
     val yearOnYear: YearOnYear? = null,
@@ -41,6 +43,8 @@ class HistoryViewModel(
     val state: StateFlow<HistoryState> = _state
     private var rangeJob: Job? = null
     private var syncJob: Job? = null
+    /** Set once the month arrows are used, so downloads don't jump the view away. */
+    private var userPickedMonth = false
 
     init {
         viewModelScope.launch {
@@ -51,6 +55,7 @@ class HistoryViewModel(
 
     private suspend fun onPlace() {
         val place = places.selected() ?: return
+        userPickedMonth = false
         _state.update { HistoryState(place = place) }
         rangeJob?.cancel()
         rangeJob = viewModelScope.launch {
@@ -78,16 +83,25 @@ class HistoryViewModel(
         syncJob = viewModelScope.launch {
             _state.update { it.copy(syncing = true, error = null) }
             runCatching {
-                history.sync(place) { done, total -> _state.update { it.copy(progress = done to total) } }
+                history.sync(
+                    place,
+                    onProgress = { done, total ->
+                        _state.update { it.copy(progress = done to total, waitSeconds = null) }
+                        // Show each newly stored chunk straight away (newest years arrive first).
+                        if (done > 0) viewModelScope.launch { if (userPickedMonth) recompute() else defaultMonth(place) }
+                    },
+                    onWait = { left -> _state.update { it.copy(waitSeconds = left.takeIf { s -> s > 0 }) } },
+                )
             }.onFailure { e -> _state.update { it.copy(error = e.message ?: "History download failed") } }
-            _state.update { it.copy(syncing = false, progress = null) }
-            defaultMonth(place)
+            _state.update { it.copy(syncing = false, progress = null, waitSeconds = null) }
+            if (userPickedMonth) recompute() else defaultMonth(place)
         }
     }
 
     fun shiftMonth(delta: Long) {
         val next = _state.value.month.plusMonths(delta)
         if (next.isAfter(YearMonth.now())) return
+        userPickedMonth = true
         _state.update { it.copy(month = next) }
         viewModelScope.launch { recompute() }
     }

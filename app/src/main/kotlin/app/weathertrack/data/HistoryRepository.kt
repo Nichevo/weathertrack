@@ -3,25 +3,26 @@ package app.weathertrack.data
 import android.content.Context
 import androidx.room.withTransaction
 import app.weathertrack.core.history.DailyObs
+import app.weathertrack.core.history.SyncPlan
 import app.weathertrack.core.openmeteo.OpenMeteoParser
 import app.weathertrack.core.openmeteo.OpenMeteoUrls
 import app.weathertrack.data.db.AppDatabase
 import app.weathertrack.data.db.ObservedDayEntity
 import app.weathertrack.data.db.PlaceEntity
 import app.weathertrack.data.db.RawPullEntity
-import app.weathertrack.data.net.HttpFetcher
+import app.weathertrack.data.net.ArchiveClient
 import java.io.IOException
 import java.time.LocalDate
 import java.time.ZoneOffset
 
 /**
- * Downloads observed daily history (back to 1940) from the Open-Meteo archive in 10-year chunks.
- * Every response is stored raw, then parsed into observed_day. Later syncs only fetch new days.
+ * Downloads observed daily history (back to 1940) from the Open-Meteo archive in 5-year chunks, newest first.
+ * Every response is stored raw, then parsed into observed_day. Later syncs only fetch missing days.
  */
 class HistoryRepository(
     context: Context,
     private val db: AppDatabase,
-    private val http: HttpFetcher,
+    private val archive: ArchiveClient,
 ) {
     private val dao = db.observedDayDao()
     private val rawDao = db.rawPullDao()
@@ -39,29 +40,27 @@ class HistoryRepository(
      * Fetches every missing day up to two days ago. [onProgress] gets (chunks done, chunks total).
      * Returns the number of days stored.
      */
-    suspend fun sync(place: PlaceEntity, onProgress: (Int, Int) -> Unit = { _, _ -> }): Int {
+    suspend fun sync(
+        place: PlaceEntity,
+        onProgress: (Int, Int) -> Unit = { _, _ -> },
+        onWait: (Int) -> Unit = {},
+    ): Int {
         val end = LocalDate.now(ZoneOffset.UTC).minusDays(2)
-        val start = dao.lastDate(place.id)?.let { LocalDate.parse(it).plusDays(1) } ?: FIRST_DAY
-        if (start.isAfter(end)) {
-            prefs.edit().putLong("synced_${place.id}", System.currentTimeMillis()).apply()
-            return 0
-        }
-        val chunks = generateSequence(start) { it.plusYears(CHUNK_YEARS) }
-            .takeWhile { !it.isAfter(end) }
-            .map { from -> from to minOf(from.plusYears(CHUNK_YEARS).minusDays(1), end) }
-            .toList()
-        var stored = 0
+        val stored = dao.dates(place.id).mapTo(HashSet()) { LocalDate.parse(it) }
+        // Newest first, so this month and recent years show up straight away.
+        val chunks = SyncPlan.chunks(stored, FIRST_DAY, end, CHUNK_DAYS)
+        var added = 0
         chunks.forEachIndexed { i, (from, to) ->
             onProgress(i, chunks.size)
-            stored += fetchChunk(place, from, to)
+            added += fetchChunk(place, from, to, onWait)
         }
         onProgress(chunks.size, chunks.size)
         prefs.edit().putLong("synced_${place.id}", System.currentTimeMillis()).apply()
-        return stored
+        return added
     }
 
-    private suspend fun fetchChunk(place: PlaceEntity, from: LocalDate, to: LocalDate): Int {
-        val result = http.get(OpenMeteoUrls.archiveDaily(place.latitude, place.longitude, from.toString(), to.toString()))
+    private suspend fun fetchChunk(place: PlaceEntity, from: LocalDate, to: LocalDate, onWait: (Int) -> Unit): Int {
+        val result = archive.get(OpenMeteoUrls.archiveDaily(place.latitude, place.longitude, from.toString(), to.toString()), onWait)
         val pull = RawPullEntity(
             source = WeatherRepository.SOURCE, endpoint = ENDPOINT_ARCHIVE, placeId = place.id,
             latitude = place.latitude, longitude = place.longitude, url = result.url,
@@ -98,6 +97,7 @@ class HistoryRepository(
     companion object {
         const val ENDPOINT_ARCHIVE = "archive"
         val FIRST_DAY: LocalDate = LocalDate.of(1940, 1, 1)
-        private const val CHUNK_YEARS = 10L
+        /** About 5 years: small enough to stay under Open-Meteo's per-minute weight. */
+        private const val CHUNK_DAYS = 1826
     }
 }
