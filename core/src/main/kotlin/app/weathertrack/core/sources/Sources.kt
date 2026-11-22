@@ -64,7 +64,27 @@ data class SourceScore(
     /** Your Raining/Dry reports this source got right, and how many it was checked on. */
     val reportsRight: Int = 0,
     val reportsTotal: Int = 0,
-)
+    /** Hours with a temperature checked. */
+    val tempHours: Int = 0,
+    /** Hours with a rain chance checked, and how many of them were actually wet. */
+    val rainHours: Int = 0,
+    val wetHours: Int = 0,
+    /** Rain-chance error on the wet hours and on the dry hours separately (your reports included). */
+    val brierWet: Double? = null,
+    val brierDry: Double? = null,
+) {
+    /**
+     * Rain-chance error with wet and dry hours counted equally. Most hours are dry, and a source that
+     * always says "no rain" would otherwise look best; this asks how it did when it actually rained too.
+     */
+    val rainError: Double? get() = if (brierWet != null && brierDry != null) (brierWet + brierDry) / 2 else brier
+
+    /**
+     * How much rain evidence there is: wet hours and your reports count fully, dry hours only a little,
+     * since a dry hour says little about how a source handles rain.
+     */
+    val rainEvidence: Double get() = wetHours + reportsTotal + 0.1 * (rainHours - wetHours)
+}
 
 data class SourceWeight(val source: String, val temp: Double, val rain: Double)
 
@@ -218,13 +238,17 @@ object Sources {
             val best = rows.filter { (it.time - it.issuedAt) / 3600 in minLeadH..maxLeadH }
                 .groupBy { it.time }.mapValues { (_, v) -> v.maxBy { it.issuedAt } }
             var n = 0; var tErr = 0.0; var tN = 0; var right = 0; var rN = 0; var brier = 0.0; var bN = 0
+            var wetB = 0.0; var wetN = 0; var dryB = 0.0; var dryN = 0; var obsWet = 0
             for ((time, f) in best) {
                 val a = actual[time] ?: continue
                 n++
                 if (f.temperature != null && a.temperature != null) { tErr += abs(f.temperature - a.temperature); tN++ }
                 val wet = a.precipitation?.let { it >= WET_MM } ?: continue
                 f.precipitation?.let { rN++; if ((it >= WET_MM) == wet) right++ }
-                f.rainChance?.let { bN++; val p = it / 100; val o = if (wet) 1.0 else 0.0; brier += (p - o) * (p - o) }
+                f.rainChance?.let {
+                    bN++; val p = it / 100; val o = if (wet) 1.0 else 0.0; val e = (p - o) * (p - o); brier += e
+                    if (wet) { wetB += e; wetN++; obsWet++ } else { dryB += e; dryN++ }
+                }
             }
             var repRight = 0; var repTotal = 0
             for (r in reports) {
@@ -233,10 +257,15 @@ object Sources {
                 val chance = f.rainChance ?: continue
                 repTotal++
                 if ((chance >= 50) == r.raining) repRight++
+                // What you saw counts in the rain record too, alongside the model analysis.
+                val p = chance / 100; val o = if (r.raining) 1.0 else 0.0; val e = (p - o) * (p - o)
+                if (r.raining) { wetB += e; wetN++ } else { dryB += e; dryN++ }
             }
             SourceScore(src, n, if (tN > 0) tErr / tN else null, if (rN > 0) right.toDouble() / rN else null,
-                if (bN > 0) brier / bN else null, repRight, repTotal)
-        }.sortedBy { it.brier ?: 1.0 }
+                if (bN > 0) brier / bN else null, repRight, repTotal,
+                tempHours = tN, rainHours = bN, wetHours = obsWet,
+                brierWet = if (wetN > 0) wetB / wetN else null, brierDry = if (dryN > 0) dryB / dryN else null)
+        }.sortedBy { it.rainError ?: 1.0 }
     }
 
     /**
@@ -275,10 +304,15 @@ object Sources {
 
     /** Hours of history at which a source's own record counts as much as an equal share. */
     const val PRIOR_HOURS = 48.0
+    /** Wet hours (or reports) at which a source's rain record counts as much as an equal share. */
+    const val PRIOR_RAIN_EVENTS = 12.0
 
     /**
-     * Blend weights: inverse error, pulled towards equal weights while there are few scored hours.
-     * Sources with no record get the equal share.
+     * Blend weights, worked out separately for temperature and for rain: inverse error, pulled towards
+     * equal weights while the record is thin. Temperature is checked every hour, so it settles after a
+     * couple of days. Rain only really tests a source when it rains, so its weights stay close to equal
+     * until there have been about [PRIOR_RAIN_EVENTS] wet hours (or reports), and they are judged with
+     * wet and dry hours counted equally. Sources with no record get the equal share.
      */
     fun weights(sources: List<String>, scores: List<SourceScore>): List<SourceWeight> {
         if (sources.isEmpty()) return emptyList()
@@ -287,12 +321,15 @@ object Sources {
         fun norm(raw: Map<String, Double>): Map<String, Double> { val s = raw.values.sum(); return raw.mapValues { it.value / s } }
         val tempSkill = norm(sources.associateWith { s -> byId[s]?.tempMae?.let { 1 / (it * it + 0.25) } ?: 0.0 }.let { m ->
             val known = m.values.filter { it > 0 }; val fill = if (known.isEmpty()) 1.0 else known.average(); m.mapValues { if (it.value > 0) it.value else fill } })
-        val rainSkill = norm(sources.associateWith { s -> byId[s]?.brier?.let { 1 / (it + 0.02) } ?: 0.0 }.let { m ->
+        val rainSkill = norm(sources.associateWith { s -> byId[s]?.rainError?.let { 1 / (it + 0.02) } ?: 0.0 }.let { m ->
             val known = m.values.filter { it > 0 }; val fill = if (known.isEmpty()) 1.0 else known.average(); m.mapValues { if (it.value > 0) it.value else fill } })
         val raw = sources.map { s ->
-            val n = (byId[s]?.hours ?: 0).toDouble()
-            val k = n / (n + PRIOR_HOURS)
-            SourceWeight(s, k * tempSkill.getValue(s) + (1 - k) * equal, k * rainSkill.getValue(s) + (1 - k) * equal)
+            val sc = byId[s]
+            val tn = (sc?.tempHours ?: 0).toDouble()
+            val kt = tn / (tn + PRIOR_HOURS)
+            val re = sc?.rainEvidence ?: 0.0
+            val kr = re / (re + PRIOR_RAIN_EVENTS)
+            SourceWeight(s, kt * tempSkill.getValue(s) + (1 - kt) * equal, kr * rainSkill.getValue(s) + (1 - kr) * equal)
         }
         val tSum = raw.sumOf { it.temp }; val rSum = raw.sumOf { it.rain }
         return raw.map { it.copy(temp = it.temp / tSum, rain = it.rain / rSum) }.sortedByDescending { it.rain }

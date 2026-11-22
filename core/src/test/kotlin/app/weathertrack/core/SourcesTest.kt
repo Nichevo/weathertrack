@@ -49,6 +49,29 @@ class SourcesTest {
         assertEquals(15.0, h.temperature!!, 0.01)
     }
 
+    @Test fun rainWeightsWaitForRainAndCountWetHoursFairly() {
+        val hours = (1L..200L).map { it * 3600 }
+        // Almost all dry: only 4 wet hours.
+        val wetSet = setOf(50L, 51L, 120L, 121L).map { it * 3600 }.toSet()
+        val obs = hours.map { ObsHour(it, 15.0, null, if (it in wetSet) 1.0 else 0.0, null) }
+        // "never" always says dry: right on 196 hours, but misses every rain.
+        val never = hours.map { IssuedSourceHour("never", it - 6 * 3600, it, 15.0, 0.0, 5.0) }
+        // "catches" sees the rain coming, with a few false alarms.
+        val catches = hours.map { IssuedSourceHour("catches", it - 6 * 3600, it, 18.0,
+            if (it in wetSet || it % (15 * 3600) == 0L) 1.0 else 0.0, if (it in wetSet || it % (15 * 3600) == 0L) 80.0 else 5.0) }
+        val scores = Sources.scores(never + catches, obs).associateBy { it.source }
+        // Plain Brier favours the dry source; the wet/dry balanced error favours the one that catches rain.
+        assertTrue(scores.getValue("never").brier!! < scores.getValue("catches").brier!!)
+        assertTrue(scores.getValue("catches").rainError!! < scores.getValue("never").rainError!!)
+        assertEquals(4, scores.getValue("catches").wetHours)
+        val w = Sources.weights(listOf("never", "catches"), scores.values.toList()).associateBy { it.source }
+        // Temperature has 200 hours behind it, so it moves well away from equal...
+        assertTrue(w.getValue("never").temp > 0.8)
+        // ...but rain, with only 4 wet hours, stays much closer to equal while still leaning the right way.
+        assertTrue(w.getValue("catches").rain > 0.5)
+        assertTrue(w.getValue("catches").rain < 0.8)
+    }
+
     @Test fun pastHoursAndDaily() {
         val zone = java.time.ZoneOffset.UTC
         val t = java.time.OffsetDateTime.parse("2026-11-22T10:00:00Z").toEpochSecond()
