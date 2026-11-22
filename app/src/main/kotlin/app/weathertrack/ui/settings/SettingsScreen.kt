@@ -113,6 +113,24 @@ fun SettingsScreen(onBack: () -> Unit) {
                 { repo.update { it.copy(rainSoonMinutes = (it.rainSoonMinutes + 15).coerceAtMost(120)) } })
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
+            Section("Walks")
+            Note("Your two regular walks. Today shows how each looks; the widget shows the next one.")
+            Stepper("Morning walk from", s.walk1Start.format(timeFmt), { repo.update { it.copy(walk1Start = it.walk1Start.minusMinutes(30)) } },
+                { repo.update { it.copy(walk1Start = it.walk1Start.plusMinutes(30)) } })
+            Stepper("Morning walk until", s.walk1End.format(timeFmt), { repo.update { it.copy(walk1End = it.walk1End.minusMinutes(30)) } },
+                { repo.update { it.copy(walk1End = it.walk1End.plusMinutes(30)) } })
+            Stepper("Evening walk from", s.walk2Start.format(timeFmt), { repo.update { it.copy(walk2Start = it.walk2Start.minusMinutes(30)) } },
+                { repo.update { it.copy(walk2Start = it.walk2Start.plusMinutes(30)) } })
+            Stepper("Evening walk until", s.walk2End.format(timeFmt), { repo.update { it.copy(walk2End = it.walk2End.minusMinutes(30)) } },
+                { repo.update { it.copy(walk2End = it.walk2End.plusMinutes(30)) } })
+            Stepper("Too hot for the dog: feels like", "${s.petHotFeelsLike}°", { repo.update { it.copy(petHotFeelsLike = it.petHotFeelsLike - 1) } },
+                { repo.update { it.copy(petHotFeelsLike = it.petHotFeelsLike + 1) } })
+            Toggle("Walk heads-up notification", s.notifyWalks) { on -> enableNotification(on) { it.copy(notifyWalks = on) } }
+            Stepper("Heads-up before the walk", "${s.walkLeadMinutes} min", { repo.update { it.copy(walkLeadMinutes = (it.walkLeadMinutes - 15).coerceAtLeast(15)) } },
+                { repo.update { it.copy(walkLeadMinutes = (it.walkLeadMinutes + 15).coerceAtMost(120)) } })
+            Toggle("Only when the walk isn't good", s.walkNotifyOnlyIfNotGood) { on -> repo.update { it.copy(walkNotifyOnlyIfNotGood = on) } }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
             Section("Notifications")
             Note("For your selected place. Rain-soon checks run every 15 minutes while it is on.")
             Toggle("Rain soon", s.notifyRainSoon) { on -> enableNotification(on) { it.copy(notifyRainSoon = on) } }

@@ -17,6 +17,8 @@ import app.weathertrack.core.alerts.TriggerCalculator
 import app.weathertrack.core.alerts.TriggerKind
 import app.weathertrack.core.jacket.JacketCalculator
 import app.weathertrack.core.jacket.Verdict
+import app.weathertrack.core.walk.WalkPlanner
+import app.weathertrack.core.walk.WalkRating
 import app.weathertrack.data.StoredForecast
 import app.weathertrack.data.db.PlaceEntity
 import app.weathertrack.notify.Notifier
@@ -80,14 +82,18 @@ class AlertWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         val app = applicationContext as WeatherApp
         val s = app.container.settings.current
         if (!s.anyAlertOn) return Result.success()
-        val zoneNow = LocalTime.now()
-        if (AlertDecider.isQuiet(zoneNow, s.quietStart, s.quietEnd)) return Result.success()
+        val quiet = AlertDecider.isQuiet(LocalTime.now(), s.quietStart, s.quietEnd)
+        val walkDue = s.notifyWalks && walkHeadsUpDue(s)
+        // Walk heads-ups follow your own walk times, so they are allowed in quiet hours.
+        if (quiet && !walkDue) return Result.success()
 
         // Rain soon needs a fresh 15-minute nowcast; heat and cold can use an hour-old forecast.
-        val (place, stored) = freshForecast(app, if (s.notifyRainSoon) 10 else 60, "alert") ?: return Result.success()
+        val (place, stored) = freshForecast(app, if (s.notifyRainSoon || walkDue) 10 else 60, "alert") ?: return Result.success()
         val f = stored.forecast
         val zone = Format.zone(f.timezone)
         val now = System.currentTimeMillis() / 1000
+        if (walkDue) walkHeadsUp(place.name, f, zone, now, s)
+        if (quiet) return Result.success()
         val enabled = buildSet {
             if (s.notifyRainSoon) add(TriggerKind.RAIN_SOON)
             if (s.notifyHot) add(TriggerKind.TOO_HOT)
@@ -113,6 +119,49 @@ class AlertWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         }
         edit.apply()
         return Result.success()
+    }
+}
+
+/** Prefs key for "this walk window on this date was already announced". */
+private fun walkKey(date: java.time.LocalDate, index: Int) = "walk_${date}_$index"
+
+/** True when a walk window starts within the lead time (device local time) and hasn't been announced. */
+private fun CoroutineWorker.walkHeadsUpDue(s: AppSettings): Boolean {
+    val prefs = applicationContext.getSharedPreferences("alert_state", Context.MODE_PRIVATE)
+    val now = LocalDateTime.now()
+    return s.walkWindows.withIndex().any { (i, w) ->
+        val start = now.toLocalDate().atTime(w.start)
+        !now.isBefore(start.minusMinutes(s.walkLeadMinutes.toLong())) && now.isBefore(start.plusMinutes(15)) &&
+            !prefs.getBoolean(walkKey(now.toLocalDate(), i), false)
+    }
+}
+
+private fun CoroutineWorker.walkHeadsUp(placeName: String, f: app.weathertrack.core.model.Forecast, zone: java.time.ZoneId, now: Long, s: AppSettings) {
+    val prefs = applicationContext.getSharedPreferences("alert_state", Context.MODE_PRIVATE)
+    val today = LocalDateTime.now().toLocalDate()
+    val nowLocal = LocalDateTime.now()
+    s.walkWindows.withIndex().forEach { (i, w) ->
+        val start = today.atTime(w.start)
+        val due = !nowLocal.isBefore(start.minusMinutes(s.walkLeadMinutes.toLong())) && nowLocal.isBefore(start.plusMinutes(15))
+        if (!due || prefs.getBoolean(walkKey(today, i), false)) return@forEach
+        prefs.edit().putBoolean(walkKey(today, i), true).apply()
+        val startEpoch = today.atTime(w.start).atZone(zone).toEpochSecond()
+        var endEpoch = today.atTime(w.end).atZone(zone).toEpochSecond()
+        if (endEpoch <= startEpoch) endEpoch += 24 * 3600
+        val walk = WalkPlanner.forecast(f.hourly, w, today, maxOf(startEpoch, now), endEpoch, s.walkThresholds) ?: return@forEach
+        if (s.walkNotifyOnlyIfNotGood && walk.rating == WalkRating.GOOD) return@forEach
+        val verdict = when (walk.rating) {
+            WalkRating.GOOD -> "looks good"
+            WalkRating.FAIR -> "OK, with care"
+            WalkRating.POOR -> "not great"
+        }
+        val details = buildList {
+            addAll(walk.issues.map { it.text })
+            walk.bestHour?.let { add("Best from ${Format.time(it, zone)}") }
+            add("Feels ${Format.temp(walk.feelsMin)}–${Format.temp(walk.feelsMax)}, humidity ${Format.pct(walk.humidityMax)}")
+            add("Cloud low ${Format.pct(walk.cloudLow)}, mid ${Format.pct(walk.cloudMid)}, high ${Format.pct(walk.cloudHigh)}")
+        }
+        Notifier.show(applicationContext, 300 + i, Notifier.CHANNEL_ALERTS, "${w.name} $verdict · $placeName", details.joinToString(". "))
     }
 }
 

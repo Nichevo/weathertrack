@@ -40,6 +40,9 @@ import app.weathertrack.core.model.DayPoint
 import app.weathertrack.core.model.Forecast
 import app.weathertrack.core.model.HourPoint
 import app.weathertrack.core.model.WeatherCodes
+import app.weathertrack.core.walk.WalkForecast
+import app.weathertrack.core.walk.WalkPlanner
+import app.weathertrack.core.walk.WalkRating
 import app.weathertrack.ui.Format
 import java.time.Instant
 import java.time.ZoneId
@@ -53,6 +56,7 @@ data class WidgetSnapshot(
     val nowEpoch: Long,
     val jacket: Verdict,
     val triggers: List<Trigger>,
+    val walk: WalkForecast?,
 )
 
 private object Palette {
@@ -94,6 +98,7 @@ class DetailWidget : GlanceAppWidget() {
             nowEpoch = now,
             jacket = JacketCalculator.evaluate(f.hourly, now, 3, f.quarterHourly, cfg.jacketThresholds).verdict,
             triggers = TriggerCalculator.evaluate(f.hourly, f.quarterHourly, now, cfg.triggerThresholds) { Format.hour(it, zone) },
+            walk = WalkPlanner.upcoming(f.hourly, cfg.walkWindows, zone, now, cfg.walkThresholds, count = 1).firstOrNull(),
         )
     }
 }
@@ -177,6 +182,19 @@ private fun Badges(s: WidgetSnapshot) {
             Verdict.NO -> Triple("No jacket", Palette.iceSoft, Palette.blue)
         }
         Badge(jacketText, jacketBg, jacketFg)
+        s.walk?.let { w ->
+            Spacer(GlanceModifier.width(4.dp))
+            val label = (if (w.window.name.startsWith("Morning")) "AM walk " else "PM walk ") + when (w.rating) {
+                WalkRating.GOOD -> "good"
+                WalkRating.FAIR -> "care"
+                WalkRating.POOR -> "poor"
+            }
+            when (w.rating) {
+                WalkRating.GOOD -> Badge(label, Color(0xFFCDEBD3), Color(0xFF0F3D1E))
+                WalkRating.FAIR -> Badge(label, Palette.amberSoft, Palette.onAmber)
+                WalkRating.POOR -> Badge(label, Palette.redSoft, Palette.red)
+            }
+        }
         s.triggers.forEach { t ->
             Spacer(GlanceModifier.width(4.dp))
             when (t.kind) {

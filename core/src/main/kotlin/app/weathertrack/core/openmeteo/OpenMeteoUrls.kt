@@ -12,6 +12,7 @@ object OpenMeteoUrls {
         "temperature_2m", "apparent_temperature", "precipitation_probability", "precipitation",
         "weather_code", "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m", "uv_index",
         "cloud_cover", "relative_humidity_2m", "is_day",
+        "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high",
     )
     val DAILY_VARS = listOf(
         "weather_code", "temperature_2m_max", "temperature_2m_min", "precipitation_sum",

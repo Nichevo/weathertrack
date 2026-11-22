@@ -83,6 +83,9 @@ class WeatherRepository(
                     uvIndex = h.uvIndex,
                     cloudCover = h.cloudCover,
                     humidity = h.humidity,
+                    cloudCoverLow = h.cloudCoverLow,
+                    cloudCoverMid = h.cloudCoverMid,
+                    cloudCoverHigh = h.cloudCoverHigh,
                 )
             })
             val zone = runCatching { ZoneId.of(forecast.timezone) }.getOrDefault(ZoneId.of("UTC"))

@@ -17,5 +17,14 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(MIGRATION_1_2)
+    /** v3: low, mid and high cloud cover on hourly forecasts. */
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `forecast_hour` ADD COLUMN `cloud_cover_low` REAL")
+            db.execSQL("ALTER TABLE `forecast_hour` ADD COLUMN `cloud_cover_mid` REAL")
+            db.execSQL("ALTER TABLE `forecast_hour` ADD COLUMN `cloud_cover_high` REAL")
+        }
+    }
+
+    val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
 }

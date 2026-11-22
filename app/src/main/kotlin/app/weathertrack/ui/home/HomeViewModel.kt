@@ -9,6 +9,8 @@ import app.weathertrack.WeatherApp
 import app.weathertrack.core.alerts.Trigger
 import app.weathertrack.core.alerts.TriggerCalculator
 import app.weathertrack.core.jacket.JacketCalculator
+import app.weathertrack.core.walk.WalkForecast
+import app.weathertrack.core.walk.WalkPlanner
 import app.weathertrack.settings.SettingsRepository
 import app.weathertrack.ui.Format
 import app.weathertrack.core.jacket.JacketResult
@@ -29,6 +31,7 @@ data class HomeState(
     val windowHours: Int = 3,
     val jacket: JacketResult? = null,
     val triggers: List<Trigger> = emptyList(),
+    val walks: List<WalkForecast> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
 )
@@ -90,7 +93,7 @@ class HomeViewModel(
 
     private fun recompute() {
         val s = _state.value
-        val f = s.stored?.forecast ?: return _state.update { it.copy(jacket = null, triggers = emptyList()) }
+        val f = s.stored?.forecast ?: return _state.update { it.copy(jacket = null, triggers = emptyList(), walks = emptyList()) }
         val now = System.currentTimeMillis() / 1000
         val zone = Format.zone(f.timezone)
         val cfg = settings.current
@@ -100,6 +103,7 @@ class HomeViewModel(
                 triggers = TriggerCalculator.evaluate(f.hourly, f.quarterHourly, now, cfg.triggerThresholds) { t ->
                     Format.time(t, zone)
                 },
+                walks = WalkPlanner.upcoming(f.hourly, cfg.walkWindows, zone, now, cfg.walkThresholds, count = 3),
             )
         }
     }

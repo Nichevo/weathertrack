@@ -40,6 +40,9 @@ object OpenMeteoParser {
             val cc = h.doubles("cloud_cover")
             val rh = h.doubles("relative_humidity_2m")
             val day = h.doubles("is_day")
+            val ccl = h.doubles("cloud_cover_low")
+            val ccm = h.doubles("cloud_cover_mid")
+            val cch = h.doubles("cloud_cover_high")
             times.mapIndexedNotNull { i, time ->
                 time ?: return@mapIndexedNotNull null
                 HourPoint(
@@ -56,6 +59,9 @@ object OpenMeteoParser {
                     cloudCover = cc.at(i),
                     humidity = rh.at(i),
                     isDay = day.at(i)?.let { it >= 0.5 },
+                    cloudCoverLow = ccl.at(i),
+                    cloudCoverMid = ccm.at(i),
+                    cloudCoverHigh = cch.at(i),
                 )
             }
         } ?: emptyList()

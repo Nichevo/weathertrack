@@ -125,6 +125,11 @@ fun HomeScreen(
                     VerdictCard(jacket, zone)
                 }
             }
+            if (state.walks.isNotEmpty()) {
+                item { SectionTitle("Walks") }
+                val nowEpoch = System.currentTimeMillis() / 1000
+                items(state.walks) { w -> WalkCard(w, zone, nowEpoch) }
+            }
             if (forecast != null) {
                 item { NowRow(forecast) }
                 item { SectionTitle("Next hours") }
