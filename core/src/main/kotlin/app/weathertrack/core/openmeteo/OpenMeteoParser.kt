@@ -192,6 +192,31 @@ object OpenMeteoParser {
         }
     }
 
+    /** Parses a [OpenMeteoUrls.rainGrid] response into a grid with the given [bounds]. */
+    fun parseRainGrid(body: String, bounds: app.weathertrack.core.map.RainGrid.Bounds): app.weathertrack.core.map.RainGrid {
+        val root = json.parseToJsonElement(body)
+        val items = when (root) {
+            is JsonArray -> root.map { it.jsonObject }
+            is JsonObject -> {
+                if ((root["error"] as? JsonPrimitive)?.contentOrNull == "true") throw ParseException(root.str("reason") ?: "API error")
+                listOf(root)
+            }
+            else -> throw ParseException("Unexpected rain grid response")
+        }
+        if (items.size != bounds.rows * bounds.cols) throw ParseException("Expected ${bounds.rows * bounds.cols} points, got ${items.size}")
+        val first = items.first()
+        val times = first.obj("minutely_15")?.longs("time")?.filterNotNull() ?: emptyList()
+        val hourTimes = first.obj("hourly")?.longs("time")?.filterNotNull() ?: emptyList()
+        return app.weathertrack.core.map.RainGrid(
+            north = bounds.north, west = bounds.west, south = bounds.south, east = bounds.east,
+            rows = bounds.rows, cols = bounds.cols,
+            times = times,
+            rainMm = items.map { it.obj("minutely_15")?.doubles("precipitation") ?: emptyList() },
+            hourTimes = hourTimes,
+            weatherCodes = items.map { o -> o.obj("hourly")?.doubles("weather_code")?.map { it?.toInt() } ?: emptyList() },
+        )
+    }
+
     fun parseGeocoding(body: String): List<GeoPlace> {
         val root = json.parseToJsonElement(body).jsonObject
         val results = root["results"] as? JsonArray ?: return emptyList()

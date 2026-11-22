@@ -15,6 +15,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.Icons
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,7 +38,7 @@ import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DataScreen() {
+fun DataScreen(onBack: () -> Unit = {}) {
     val app = LocalContext.current.applicationContext as WeatherApp
     val db = app.container.database
     val exporter = app.container.exporter
@@ -66,7 +70,12 @@ fun DataScreen() {
     }
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text("Your data") })
+        TopAppBar(
+            title = { Text("Your data") },
+            navigationIcon = {
+                IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") }
+            },
+        )
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -51,7 +52,10 @@ private val longDate = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HistoryScreen(vm: HistoryViewModel = viewModel(factory = HistoryViewModel.Factory)) {
+fun HistoryScreen(
+    onOpenData: () -> Unit = {},
+    vm: HistoryViewModel = viewModel(factory = HistoryViewModel.Factory),
+) {
     val s by vm.state.collectAsStateWithLifecycle()
     val monthName = s.month.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)
 
@@ -59,6 +63,7 @@ fun HistoryScreen(vm: HistoryViewModel = viewModel(factory = HistoryViewModel.Fa
         TopAppBar(
             title = { Text("History · ${s.place?.name ?: ""}") },
             actions = {
+                IconButton(onClick = onOpenData) { Icon(Icons.Filled.List, contentDescription = "Your data and exports") }
                 IconButton(onClick = vm::sync, enabled = !s.syncing) {
                     Icon(Icons.Filled.Refresh, contentDescription = "Download new days")
                 }
