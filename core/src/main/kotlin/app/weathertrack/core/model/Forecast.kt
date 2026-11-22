@@ -18,6 +18,9 @@ data class HourPoint(
     val cloudCoverLow: Double? = null,
     val cloudCoverMid: Double? = null,
     val cloudCoverHigh: Double? = null,
+    /** Sunlight on a flat surface, W/m² (mean over the preceding hour). */
+    val shortwaveRadiation: Double? = null,
+    val dewPoint: Double? = null,
 )
 
 /** One 15-minute step, used for the short-term rain nowcast. */
@@ -39,6 +42,8 @@ data class DayPoint(
     val uvIndexMax: Double?,
     val sunrise: Long?,
     val sunset: Long?,
+    /** Reference evapotranspiration (how much water a lawn loses), mm. */
+    val et0: Double? = null,
 )
 
 data class CurrentConditions(

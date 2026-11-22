@@ -53,6 +53,10 @@ data class ForecastCheckState(
     val rainFan: List<app.weathertrack.core.accuracy.FanPoint> = emptyList(),
     /** How the forecast and radar matched the user's own raining / dry reports in the period. */
     val reports: app.weathertrack.core.accuracy.ReportScore? = null,
+    /** Did the 8-in-10 ranges (built from older days) hold over the last 30 days? */
+    val coverage: List<app.weathertrack.core.accuracy.Coverage> = emptyList(),
+    /** True when the likely ranges come from the same time of year rather than all days. */
+    val seasonal: Boolean = false,
 )
 
 class ForecastCheckViewModel(
@@ -126,10 +130,16 @@ class ForecastCheckViewModel(
             val actuals = ForecastCheck.dailyActuals(o, zone)
             val leads = ForecastCheck.highErrors(r, o, zone, from)
             val rainLeads = ForecastCheck.rainErrors(r, o, zone, from)
+            // Ranges for the coming days use the same season (from all stored years) when there is enough.
+            val seasonal = ForecastCheck.seasonalHighErrors(r, o, zone, today)
+            val allDays = ForecastCheck.highErrors(r, o, zone, LocalDate.of(1970, 1, 1)).associate { it.lead to it.days }
+            val isSeasonal = seasonal.any { allDays[it.lead] != it.days }
             val dated = daily.mapNotNull { d -> runCatching { LocalDate.parse(d.date) }.getOrNull()?.let { it to d } }
             ForecastCheckState(
                 reports = app.weathertrack.core.accuracy.Feedback.score(myReports),
-                tempFan = ForecastCheck.fan(dated.map { it.first to it.second.temperatureMax }, today, leads),
+                tempFan = ForecastCheck.fan(dated.map { it.first to it.second.temperatureMax }, today, seasonal.ifEmpty { leads }),
+                coverage = ForecastCheck.coverage(r, o, zone, today.minusDays(30)),
+                seasonal = isSeasonal,
                 rainFan = ForecastCheck.fan(dated.map { it.first to it.second.precipitationSum }, today, rainLeads, floorZero = true),
                 jacket = ForecastCheck.jacket(iss, o, zone, from, st.jacketThresholds, morningHour = st.morningTime.hour),
                 rainCalls = ForecastCheck.rainCalls(r, o, zone, from),
@@ -146,6 +156,7 @@ class ForecastCheckViewModel(
                 jacket = result.jacket, rainCalls = result.rainCalls, leads = result.leads, bands = result.bands,
                 reliability = result.reliability, misses = result.misses, actualDays = result.actualDays,
                 firstActual = result.firstActual, tempFan = result.tempFan, rainFan = result.rainFan, reports = result.reports,
+                coverage = result.coverage, seasonal = result.seasonal,
             )
         }
     }

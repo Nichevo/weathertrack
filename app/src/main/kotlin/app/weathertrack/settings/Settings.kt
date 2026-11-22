@@ -43,6 +43,14 @@ data class AppSettings(
     // Home heating and cooling: degree-day base temperatures, °C.
     val heatingBase: Int = 18,
     val coolingBase: Int = 22,
+    // Cold nights, official warnings, sun.
+    val notifyColdNight: Boolean = false,
+    val coldNightTemp: Int = 2,
+    val notifyWarnings: Boolean = false,
+    /** Fitzpatrick skin type 1 (always burns) to 6, for UV burn time. */
+    val skinType: Int = 2,
+    // Weekly Dropbox backup (the app key and tokens live in their own private store).
+    val backupWeekly: Boolean = false,
 ) {
     val degreeDayBases: DegreeDayBases
         get() = DegreeDayBases(heating = heatingBase.toDouble(), cooling = coolingBase.toDouble())
@@ -72,7 +80,7 @@ data class AppSettings(
             rainSoonMinutes = rainSoonMinutes,
         )
 
-    val anyAlertOn: Boolean get() = notifyRainSoon || notifyHot || notifyCold || notifyWalks
+    val anyAlertOn: Boolean get() = notifyRainSoon || notifyHot || notifyCold || notifyWalks || notifyColdNight || notifyWarnings
 }
 
 class SettingsRepository(context: Context) {
@@ -117,6 +125,11 @@ class SettingsRepository(context: Context) {
             walkNotifyOnlyIfNotGood = prefs.getBoolean("walk_only_not_good", d.walkNotifyOnlyIfNotGood),
             heatingBase = prefs.getInt("heating_base", d.heatingBase),
             coolingBase = prefs.getInt("cooling_base", d.coolingBase),
+            notifyColdNight = prefs.getBoolean("notify_cold_night", d.notifyColdNight),
+            coldNightTemp = prefs.getInt("cold_night_temp", d.coldNightTemp),
+            notifyWarnings = prefs.getBoolean("notify_warnings", d.notifyWarnings),
+            skinType = prefs.getInt("skin_type", d.skinType),
+            backupWeekly = prefs.getBoolean("backup_weekly", d.backupWeekly),
         )
     }
 
@@ -147,6 +160,11 @@ class SettingsRepository(context: Context) {
             .putBoolean("walk_only_not_good", s.walkNotifyOnlyIfNotGood)
             .putInt("heating_base", s.heatingBase)
             .putInt("cooling_base", s.coolingBase)
+            .putBoolean("notify_cold_night", s.notifyColdNight)
+            .putInt("cold_night_temp", s.coldNightTemp)
+            .putBoolean("notify_warnings", s.notifyWarnings)
+            .putInt("skin_type", s.skinType)
+            .putBoolean("backup_weekly", s.backupWeekly)
             .apply()
     }
 }

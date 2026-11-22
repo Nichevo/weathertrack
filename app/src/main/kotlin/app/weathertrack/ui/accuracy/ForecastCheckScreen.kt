@@ -109,7 +109,8 @@ fun ForecastCheckScreen(
                 Section("Next days: likely range") {
                     Text(
                         "The current forecast, with the range 8 in 10 past forecasts at the same lead landed in " +
-                            "(${s.period.label.lowercase()} of history). Wider means less sure.",
+                            (if (s.seasonal) "(highs: same time of year, all stored years; rain: ${s.period.label.lowercase()}). "
+                            else "(${s.period.label.lowercase()} of history). ") + "Wider means less sure.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (s.tempFan.isNotEmpty()) {
@@ -123,6 +124,26 @@ fun ForecastCheckScreen(
                 }
             } else if (s.actualDays == 0 && !s.syncing) {
                 Text("No past forecasts to compare yet. Tap refresh at the top to download them.")
+            }
+
+            if (s.coverage.isNotEmpty()) {
+                Section("Do the ranges hold?") {
+                    Text(
+                        "Ranges built only from older days, checked against the last 30 days. A good range catches about 8 in 10.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    s.coverage.forEach { c ->
+                        val pct = (c.share * 100).roundToInt()
+                        val verdict = when {
+                            c.total < 10 -> "too few days to say"
+                            pct < 65 -> "too narrow, be less sure"
+                            pct > 95 -> "wider than needed"
+                            else -> "about right"
+                        }
+                        Text("${if (c.lead == 0) "Today" else "${c.lead} day${if (c.lead == 1) "" else "s"} ahead"}: " +
+                            "${c.inside} of ${c.total} days inside ($pct%), $verdict")
+                    }
+                }
             }
 
             Section("How far off the daily high was") {

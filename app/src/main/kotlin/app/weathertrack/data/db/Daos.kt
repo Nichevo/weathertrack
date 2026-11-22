@@ -19,6 +19,9 @@ interface RawPullDao {
     )
     suspend fun latest(placeId: Long, source: String, endpoint: String): RawPullEntity?
 
+    @Query("SELECT * FROM raw_pull WHERE url = :url AND http_status = 200 ORDER BY fetched_at DESC LIMIT 1")
+    suspend fun latestForUrl(url: String): RawPullEntity?
+
     @Query("SELECT COUNT(*) FROM raw_pull")
     fun count(): Flow<Int>
 

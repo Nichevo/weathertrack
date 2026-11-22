@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import androidx.glance.appwidget.updateAll
+import app.weathertrack.backup.DropboxBackup
 import app.weathertrack.data.ClimateRepository
 import app.weathertrack.data.ExtrasRepository
 import app.weathertrack.data.ForecastCheckRepository
@@ -49,6 +50,7 @@ class AppContainer(app: Application) {
     val climate = ClimateRepository(app, database, archive)
     val forecastCheck = ForecastCheckRepository(app, database, archive)
     val exporter = DataExporter(app, database)
+    val backup = DropboxBackup(app, exporter)
     val tiles = TileStore(app)
     val rainMap = RainMapRepository(http, database.rawPullDao())
     val extras = ExtrasRepository(http, database.rawPullDao())

@@ -157,6 +157,22 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
+            Section("Outside")
+            val skinNames = listOf("very fair", "fair", "medium", "olive", "brown", "dark")
+            Stepper("Skin type (UV burn time)", "${s.skinType} · ${skinNames[(s.skinType - 1).coerceIn(0, 5)]}",
+                { repo.update { it.copy(skinType = (it.skinType - 1).coerceAtLeast(1)) } },
+                { repo.update { it.copy(skinType = (it.skinType + 1).coerceAtMost(6)) } })
+            Toggle("Cold night / frost alert (evening)", s.notifyColdNight) { on -> enableNotification(on) { it.copy(notifyColdNight = on) } }
+            Stepper("Cold night: low at or below", "${s.coldNightTemp}°", { repo.update { it.copy(coldNightTemp = it.coldNightTemp - 1) } },
+                { repo.update { it.copy(coldNightTemp = it.coldNightTemp + 1) } })
+            Toggle("MetService warnings (NZ)", s.notifyWarnings) { on -> enableNotification(on) { it.copy(notifyWarnings = on) } }
+            Note("Red and orange warnings can come through quiet hours.")
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+            Section("Backup to Dropbox")
+            BackupSection(s.backupWeekly) { on -> repo.update { it.copy(backupWeekly = on) } }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
             Section("Background refresh")
             Note("How often every saved place is pulled and stored.")
             val options = listOf(30 to "30 min", 60 to "1 hour", 180 to "3 hours")
