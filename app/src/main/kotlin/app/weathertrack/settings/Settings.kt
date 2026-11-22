@@ -55,6 +55,10 @@ data class AppSettings(
     val clockPlaceId: Long = -1L,
     /** A quiet weather notification that shows on the lock screen. */
     val lockGlance: Boolean = false,
+    /** NZ tide port for the tide card; empty picks the nearest one. */
+    val tidePort: String = "",
+    /** Detail kept for forecasts older than 30 days: "all", "hourly" or "3h" (see KeepOlder). */
+    val keepOlder: String = "hourly",
 ) {
     val degreeDayBases: DegreeDayBases
         get() = DegreeDayBases(heating = heatingBase.toDouble(), cooling = coolingBase.toDouble())
@@ -136,6 +140,8 @@ class SettingsRepository(context: Context) {
             backupWeekly = prefs.getBoolean("backup_weekly", d.backupWeekly),
             clockPlaceId = prefs.getLong("clock_place_id", d.clockPlaceId),
             lockGlance = prefs.getBoolean("lock_glance", d.lockGlance),
+            tidePort = prefs.getString("tide_port", d.tidePort) ?: d.tidePort,
+            keepOlder = prefs.getString("keep_older", d.keepOlder) ?: d.keepOlder,
         )
     }
 
@@ -173,6 +179,8 @@ class SettingsRepository(context: Context) {
             .putBoolean("backup_weekly", s.backupWeekly)
             .putLong("clock_place_id", s.clockPlaceId)
             .putBoolean("lock_glance", s.lockGlance)
+            .putString("tide_port", s.tidePort)
+            .putString("keep_older", s.keepOlder)
             .apply()
     }
 }

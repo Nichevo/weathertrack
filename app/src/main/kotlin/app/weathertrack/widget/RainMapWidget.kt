@@ -260,6 +260,7 @@ object RainWidgetFrames {
     private const val VIEW_H = 200.0
     private const val ZOOM = 10
     private const val MIN_INTERVAL_MS = 10 * 60_000L
+    private const val IDLE_INTERVAL_MS = 30 * 60_000L
     private val lock = Mutex()
 
     data class Step(val label: String, val time: String, val headline: String, val detail: String, val spot: String)
@@ -301,7 +302,10 @@ object RainWidgetFrames {
         container.places.ensureDefaults()
         val place = container.places.selected() ?: return@withLock false
         val old = meta(context)
-        if (!force && old != null && old.placeId == place.id && System.currentTimeMillis() - old.renderedAt < MIN_INTERVAL_MS) {
+        // With the screen off nobody sees the widget, so it redraws less often (it catches up within 30 minutes).
+        val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+        val minInterval = if (pm.isInteractive && !pm.isPowerSaveMode) MIN_INTERVAL_MS else IDLE_INTERVAL_MS
+        if (!force && old != null && old.placeId == place.id && System.currentTimeMillis() - old.renderedAt < minInterval) {
             return@withLock false
         }
         runCatching {

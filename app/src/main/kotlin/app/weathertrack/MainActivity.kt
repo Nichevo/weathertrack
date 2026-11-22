@@ -81,8 +81,12 @@ class MainActivity : ComponentActivity() {
                     NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding)) {
                         composable("home") { HomeScreen(onOpenSettings = { nav.navigate("settings") }) }
                         composable("settings") {
-                            SettingsScreen(onOpenPlaces = { nav.navigate("places") }, onOpenAbout = { tab -> nav.navigate("about/$tab") })
+                            SettingsScreen(
+                                onOpenPlaces = { nav.navigate("places") }, onOpenAbout = { tab -> nav.navigate("about/$tab") },
+                                onOpenReport = { nav.navigate("report") },
+                            )
                         }
+                        composable("report") { app.weathertrack.ui.about.ReportScreen(onBack = { nav.popBackStack() }) }
                         composable("about/{tab}") { entry ->
                             app.weathertrack.ui.about.AboutScreen(
                                 startTab = entry.arguments?.getString("tab")?.toIntOrNull() ?: 0, onBack = { nav.popBackStack() },

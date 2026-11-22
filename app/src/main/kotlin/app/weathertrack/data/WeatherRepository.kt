@@ -30,7 +30,7 @@ class WeatherRepository(
     /** Latest successfully stored forecast for a place, parsed from its raw JSON. Works offline. */
     suspend fun cachedForecast(place: PlaceEntity): StoredForecast? {
         val pull = rawDao.latest(place.id, SOURCE, ENDPOINT_FORECAST) ?: return null
-        return runCatching { StoredForecast(OpenMeteoParser.parseForecast(pull.body), pull.fetchedAt, pull.id) }.getOrNull()
+        return runCatching { StoredForecast(OpenMeteoParser.parseForecast(pull.text), pull.fetchedAt, pull.id) }.getOrNull()
     }
 
     /**

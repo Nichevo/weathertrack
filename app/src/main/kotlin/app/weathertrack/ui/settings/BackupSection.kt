@@ -90,6 +90,18 @@ fun BackupSection(weekly: Boolean, onWeekly: (Boolean) -> Unit) {
                 }) { Text("Back up now") }
                 OutlinedButton(onClick = { backup.disconnect(); status = backup.status(); onWeekly(false) }) { Text("Disconnect") }
             }
+            OutlinedButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = {
+                busy = true
+                message = "Downloading the newest backup to check it…"
+                scope.launch {
+                    val r = backup.testLatest()
+                    busy = false
+                    message = r.getOrElse { "Restore test failed: ${it.message}" }
+                }
+            }) { Text("Test the newest backup restores") }
+            Text("Downloads the newest backup, opens it and checks it's complete. Nothing on the phone changes. " +
+                "Every backup is also checked before it's uploaded.", style = MaterialTheme.typography.bodySmall)
+            backup.lastTest()?.let { Text("Last test: $it", style = MaterialTheme.typography.bodySmall) }
             if (status.lastAtMs > 0) Text("Last backup ${Format.ago(status.lastAtMs)}", style = MaterialTheme.typography.bodySmall)
             status.lastResult?.takeIf { it.startsWith("Failed") }?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)

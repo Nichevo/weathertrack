@@ -30,7 +30,43 @@ interface RawPullDao {
 
     @Query("SELECT MIN(fetched_at) FROM raw_pull")
     fun firstFetchedAt(): Flow<Long?>
+
+    @Query("SELECT COALESCE(SUM(LENGTH(body_gz)), 0) FROM raw_pull")
+    fun compressedBytes(): Flow<Long>
+
+    @Query("SELECT id, place_id AS placeId, fetched_at AS fetchedAt FROM raw_pull WHERE source = :source AND endpoint = :endpoint AND fetched_at < :before")
+    suspend fun pullsBefore(source: String, endpoint: String, before: Long): List<PullRow>
+
+    @Query("SELECT id, body FROM raw_pull WHERE fetched_at < :before AND body != '' AND body_gz IS NULL LIMIT :limit")
+    suspend fun uncompressed(before: Long, limit: Int): List<IdBody>
+
+    @Query("UPDATE raw_pull SET body = '', body_gz = :gz WHERE id = :id")
+    suspend fun setCompressed(id: Long, gz: ByteArray)
+
+    @Query("DELETE FROM raw_pull WHERE http_status != 200 AND fetched_at < :before")
+    suspend fun deleteFailedBefore(before: Long): Int
+
+    @Query("DELETE FROM raw_pull WHERE id IN (:ids)")
+    suspend fun deleteIds(ids: List<Long>): Int
+
+    @Query("SELECT endpoint, http_status AS status, fetched_at AS fetchedAt FROM raw_pull WHERE http_status != 200 ORDER BY fetched_at DESC LIMIT :limit")
+    suspend fun recentFailures(limit: Int): List<FailedPull>
+
+    @Query("SELECT MAX(fetched_at) FROM raw_pull WHERE endpoint = :endpoint AND http_status = 200")
+    suspend fun lastSuccess(endpoint: String): Long?
+
+    @Query(
+        "SELECT endpoint, COUNT(*) AS pulls, COALESCE(SUM(LENGTH(body)), 0) + COALESCE(SUM(LENGTH(body_gz)), 0) AS bytes " +
+            "FROM raw_pull WHERE fetched_at >= :since GROUP BY endpoint ORDER BY pulls DESC"
+    )
+    suspend fun downloadsSince(since: Long): List<EndpointUse>
 }
+
+data class EndpointUse(val endpoint: String, val pulls: Int, val bytes: Long)
+
+data class PullRow(val id: Long, val placeId: Long?, val fetchedAt: Long)
+data class IdBody(val id: Long, val body: String)
+data class FailedPull(val endpoint: String, val status: Int, val fetchedAt: Long)
 
 @Dao
 interface ForecastDao {
@@ -45,6 +81,12 @@ interface ForecastDao {
 
     @Query("SELECT COUNT(*) FROM forecast_day")
     fun dayCount(): Flow<Int>
+
+    @Query("DELETE FROM forecast_hour WHERE pull_id IN (:pullIds)")
+    suspend fun deleteHoursOf(pullIds: List<Long>): Int
+
+    @Query("DELETE FROM forecast_day WHERE pull_id IN (:pullIds)")
+    suspend fun deleteDaysOf(pullIds: List<Long>): Int
 }
 
 @Dao

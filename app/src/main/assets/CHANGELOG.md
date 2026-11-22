@@ -2,6 +2,15 @@
 
 Each release adds a section at the top. The app shows the one matching the installed version.
 
+## 1.1 · Harden
+- Stored data stays a sensible size: downloads older than 30 days are compressed, failed downloads are removed, and older forecasts are thinned to one an hour (or every three hours, or kept in full, your choice on the Data screen). It runs weekly while charging and idle, or with "Tidy up now".
+- Lighter on the battery: background refresh waits for a battery that isn't low, the rain map widget redraws every 30 minutes when the screen is off or battery saver is on, and rain-soon checks relax in battery saver.
+- Every database upgrade is now tested from the very first version on each build.
+- Dropbox: each backup is checked before upload, and "Test the newest backup restores" downloads and opens the latest one.
+- Settings: "Report a problem" opens a GitHub issue with app, device and download details (no places, coordinates or accounts). The last crash is kept to include.
+- NZ tides now use LINZ's official predictions for the nearest standard port, with a port picker in Settings.
+- Lightning: live strike data isn't allowed for apps like this, so the thunder risk layer stays.
+
 ## 1.0 · Clouds, wind and roadmap
 - Cloud layers on Today (low, mid and high), with what they mean: "Low cloud until 11 am keeps it near 16°", "Clear tonight: cold, frost possible".
 - "Sunny" now looks at low and mid cloud only. Thin high cloud no longer turns a sunny day into "Overcast".

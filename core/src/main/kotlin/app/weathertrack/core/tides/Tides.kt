@@ -8,11 +8,15 @@ data class TideEvent(val time: Long, val height: Double, val high: Boolean)
 
 data class TideSeries(
     val points: List<TidePoint>,
-    /** Where the sea level comes from (the nearest sea grid cell). */
+    /** Where the sea level comes from (the nearest sea grid cell, or the tide port). */
     val latitude: Double,
     val longitude: Double,
+    /** Published highs and lows (LINZ), used as they are instead of turning points of [points]. */
+    val official: List<TideEvent>? = null,
+    /** The tide port's name when [official] is set. */
+    val port: String? = null,
 ) {
-    val events: List<TideEvent> by lazy { Tides.extremes(points) }
+    val events: List<TideEvent> by lazy { official ?: Tides.extremes(points) }
 }
 
 data class TideNow(val height: Double, val rising: Boolean, val next: TideEvent?, val after: TideEvent?)
