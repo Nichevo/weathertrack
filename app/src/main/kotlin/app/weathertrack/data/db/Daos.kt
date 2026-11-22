@@ -85,6 +85,9 @@ interface ObservedDayDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(rows: List<ObservedDayEntity>)
 
+    @Query("SELECT * FROM observed_day WHERE place_id = :placeId ORDER BY date")
+    suspend fun all(placeId: Long): List<ObservedDayEntity>
+
     @Query("SELECT MAX(date) FROM observed_day WHERE place_id = :placeId")
     suspend fun lastDate(placeId: Long): String?
 

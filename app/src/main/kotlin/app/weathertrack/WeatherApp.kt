@@ -49,6 +49,7 @@ class AppContainer(app: Application) {
     val exporter = DataExporter(app, database)
     val tiles = TileStore(app)
     val rainMap = RainMapRepository(http, database.rawPullDao())
+    val radarSpot = app.weathertrack.map.RadarSpotChecker(rainMap, tiles)
     val settings = SettingsRepository(app)
 }
 

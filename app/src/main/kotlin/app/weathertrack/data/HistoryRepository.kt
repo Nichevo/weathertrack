@@ -94,6 +94,11 @@ class HistoryRepository(
             DailyObs(LocalDate.parse(it.date), it.temperatureMax, it.temperatureMin, it.precipitationSum)
         }
 
+    /** Every stored day for a place. */
+    suspend fun all(placeId: Long): List<DailyObs> = dao.all(placeId).map {
+        DailyObs(LocalDate.parse(it.date), it.temperatureMax, it.temperatureMin, it.precipitationSum)
+    }
+
     companion object {
         const val ENDPOINT_ARCHIVE = "archive"
         val FIRST_DAY: LocalDate = LocalDate.of(1940, 1, 1)

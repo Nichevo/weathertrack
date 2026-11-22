@@ -73,3 +73,33 @@ class RainOutlookTest {
         assertEquals(900L, app.weathertrack.core.map.RainOutlooks.firstRain(g, -36.85, 174.76, 10))
     }
 }
+
+class RadarSpotTest {
+    private fun tile(wet: (Int, Int) -> Boolean): IntArray =
+        IntArray(512 * 512) { i -> if (wet(i % 512, i / 512)) 0xFF5599DD.toInt() else 0 }
+
+    @org.junit.Test fun dryTileIsDry() {
+        val s = app.weathertrack.core.map.RadarSpots.read(1L, tile { _, _ -> false }, 512, 512, 100, 100)
+        org.junit.Assert.assertFalse(s.wetHere)
+        org.junit.Assert.assertFalse(s.wetNearby)
+    }
+
+    @org.junit.Test fun rainOverSpotIsWet() {
+        val s = app.weathertrack.core.map.RadarSpots.read(1L, tile { x, _ -> x < 110 }, 512, 512, 100, 100)
+        org.junit.Assert.assertTrue(s.wetHere)
+    }
+
+    @org.junit.Test fun rainTenPixelsAwayIsNearbyOnly() {
+        val s = app.weathertrack.core.map.RadarSpots.read(1L, tile { x, _ -> x > 110 }, 512, 512, 100, 100)
+        org.junit.Assert.assertFalse(s.wetHere)
+        org.junit.Assert.assertTrue(s.wetNearby)
+    }
+
+    @org.junit.Test fun locateAuckland() {
+        val (t, p) = app.weathertrack.core.map.RadarSpots.locate(-36.85, 174.76)
+        org.junit.Assert.assertEquals(7, t.z)
+        org.junit.Assert.assertEquals(126, t.x)
+        org.junit.Assert.assertEquals(78, t.y)
+        org.junit.Assert.assertTrue(p.first in 0..511 && p.second in 0..511)
+    }
+}

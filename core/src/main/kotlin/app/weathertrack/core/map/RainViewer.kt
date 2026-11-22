@@ -33,6 +33,10 @@ object RainViewer {
         return Frames(host, past)
     }
 
+    /** Unsmoothed 512-pixel tile for [frame], for reading the radar at a spot. */
+    fun rawTileUrl(host: String, frame: Frame, z: Int, x: Int, y: Int): String =
+        "$host${frame.path}/512/$z/$x/$y/2/0_0.png"
+
     /** 512-pixel tile for [frame]. [z] must be at most [MAX_ZOOM]. */
     fun tileUrl(host: String, frame: Frame, z: Int, x: Int, y: Int): String =
         "$host${frame.path}/512/$z/$x/$y/$OPTIONS.png"
