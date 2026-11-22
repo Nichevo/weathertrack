@@ -80,7 +80,11 @@ class HomeViewModel(
             placeRepo.selectedId.collect { load() }
         }
         viewModelScope.launch {
-            settings.settings.collect { recompute() }
+            settings.settings.collect {
+                recompute()
+                // The 4x2 widget shows settings too (second clock, thresholds).
+                runCatching { updateWidgets() }
+            }
         }
     }
 
