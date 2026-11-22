@@ -79,3 +79,27 @@ class PreviousRunsParseTest {
         assertEquals(9.0, rows.first { it.lead == 1 }.temperature!!, 1e-9)
     }
 }
+
+class FanTest {
+    private val e = listOf(
+        app.weathertrack.core.accuracy.LeadError(1, 30, 1.0, 0.0, -1.0, 1.5),
+        app.weathertrack.core.accuracy.LeadError(3, 30, 2.0, 0.0, -2.0, 3.0),
+        app.weathertrack.core.accuracy.LeadError(7, 30, 3.0, 0.0, -4.0, 4.0),
+    )
+    private val today = java.time.LocalDate.of(2026, 11, 22)
+
+    @org.junit.Test fun widensWithLead() {
+        val f = app.weathertrack.core.accuracy.ForecastCheck.fan(
+            listOf(today.plusDays(1) to 20.0, today.plusDays(2) to 20.0, today.plusDays(9) to 20.0), today, e)
+        org.junit.Assert.assertEquals(19.0, f[0].low, 1e-9)
+        org.junit.Assert.assertEquals(21.5, f[0].high, 1e-9)
+        org.junit.Assert.assertEquals(18.0, f[1].low, 1e-9) // lead 2 uses lead 3
+        org.junit.Assert.assertEquals(24.0, f[2].high, 1e-9) // beyond 7 uses 7
+    }
+
+    @org.junit.Test fun rainNeverBelowZero() {
+        val f = app.weathertrack.core.accuracy.ForecastCheck.fan(listOf(today.plusDays(1) to 0.5), today, e, floorZero = true)
+        org.junit.Assert.assertEquals(0.0, f[0].low, 1e-9)
+        org.junit.Assert.assertEquals(2.0, f[0].high, 1e-9)
+    }
+}

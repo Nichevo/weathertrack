@@ -48,12 +48,16 @@ data class ForecastCheckState(
     val actualDays: Int = 0,
     val firstActual: LocalDate? = null,
     val storedPulls: Int = 0,
+    /** The current 7-day forecast with likely ranges from past errors. */
+    val tempFan: List<app.weathertrack.core.accuracy.FanPoint> = emptyList(),
+    val rainFan: List<app.weathertrack.core.accuracy.FanPoint> = emptyList(),
 )
 
 class ForecastCheckViewModel(
     private val repo: ForecastCheckRepository,
     private val places: PlaceRepository,
     private val settings: SettingsRepository,
+    private val weather: app.weathertrack.data.WeatherRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ForecastCheckState())
     val state: StateFlow<ForecastCheckState> = _state
@@ -114,10 +118,15 @@ class ForecastCheckViewModel(
         val r = runs
         val iss = issued
         val st = settings.current
+        val daily = weather.cachedForecast(place)?.forecast?.daily.orEmpty()
         val result = withContext(Dispatchers.Default) {
             val actuals = ForecastCheck.dailyActuals(o, zone)
             val leads = ForecastCheck.highErrors(r, o, zone, from)
+            val rainLeads = ForecastCheck.rainErrors(r, o, zone, from)
+            val dated = daily.mapNotNull { d -> runCatching { LocalDate.parse(d.date) }.getOrNull()?.let { it to d } }
             ForecastCheckState(
+                tempFan = ForecastCheck.fan(dated.map { it.first to it.second.temperatureMax }, today, leads),
+                rainFan = ForecastCheck.fan(dated.map { it.first to it.second.precipitationSum }, today, rainLeads, floorZero = true),
                 jacket = ForecastCheck.jacket(iss, o, zone, from, st.jacketThresholds, morningHour = st.morningTime.hour),
                 rainCalls = ForecastCheck.rainCalls(r, o, zone, from),
                 leads = leads,
@@ -132,7 +141,7 @@ class ForecastCheckViewModel(
             it.copy(
                 jacket = result.jacket, rainCalls = result.rainCalls, leads = result.leads, bands = result.bands,
                 reliability = result.reliability, misses = result.misses, actualDays = result.actualDays,
-                firstActual = result.firstActual,
+                firstActual = result.firstActual, tempFan = result.tempFan, rainFan = result.rainFan,
             )
         }
     }
@@ -141,7 +150,7 @@ class ForecastCheckViewModel(
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as WeatherApp
-                ForecastCheckViewModel(app.container.forecastCheck, app.container.places, app.container.settings)
+                ForecastCheckViewModel(app.container.forecastCheck, app.container.places, app.container.settings, app.container.weather)
             }
         }
     }

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -306,22 +307,51 @@ private fun HourStrip(f: Forecast, zone: ZoneId) {
 
 @Composable
 private fun HourCell(h: HourPoint, zone: ZoneId) {
-    val wet = (h.precipitationProbability ?: 0.0) >= 40
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (wet) JacketAmberContainer else MaterialTheme.colorScheme.surfaceVariant,
-        ),
-    ) {
+    val prob = h.precipitationProbability ?: 0.0
+    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val tint = app.weathertrack.ui.tempColor(h.apparentTemperature ?: h.temperature, dark)
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(
-            Modifier.width(72.dp).padding(vertical = 10.dp),
+            Modifier.width(72.dp)
+                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(tint, tint.copy(alpha = tint.alpha * 0.25f))))
+                .padding(top = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(Format.hour(h.time, zone), style = MaterialTheme.typography.labelMedium)
-            Text(Format.temp(h.temperature), style = MaterialTheme.typography.titleMedium)
-            Text(Format.pct(h.precipitationProbability), style = MaterialTheme.typography.labelSmall)
-            Text(Format.kmh(h.windGusts).removeSuffix(" km/h"), style = MaterialTheme.typography.labelSmall)
+            app.weathertrack.ui.WeatherIcon(h.weatherCode, h.isDay, size = 34.dp)
+            Text(Format.temp(h.temperature), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            h.apparentTemperature?.let {
+                Text("feels ${Format.temp(it)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            val gust = h.windGusts ?: 0.0
+            Text(
+                "💨 ${Format.kmh(h.windGusts).removeSuffix(" km/h")}",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (gust >= 40) FontWeight.Bold else FontWeight.Normal,
+                color = if (gust >= 40) Color(0xFFB3261E) else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            RainBar(prob, h.precipitation)
         }
+    }
+}
+
+/** Rain chance as a blue fill along the bottom of an hour, with the amount when there is some. */
+@Composable
+private fun RainBar(prob: Double, mm: Double?) {
+    val wet = prob >= 40
+    Box(Modifier.fillMaxWidth().height(26.dp).background(Color(0x142F7DD1)), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                .fillMaxHeight((prob / 100.0).toFloat().coerceIn(0f, 1f))
+                .background(Color(0xFF2F7DD1).copy(alpha = 0.25f + 0.5f * (prob / 100.0).toFloat().coerceIn(0f, 1f))),
+        )
+        Text(
+            if ((mm ?: 0.0) >= 0.1) "${Format.pct(prob)} · ${String.format(java.util.Locale.US, "%.1f", mm)}" else Format.pct(prob),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (wet) FontWeight.Bold else FontWeight.Normal,
+            color = if (prob >= 60) Color.White else MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 
@@ -330,6 +360,8 @@ private fun DayRow(d: DayPoint, band: Band?) {
     Column {
         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(Format.day(d.date), Modifier.width(64.dp), fontWeight = FontWeight.Medium)
+            app.weathertrack.ui.WeatherIcon(d.weatherCode, true, size = 26.dp)
+            Spacer(Modifier.width(6.dp))
             Text(WeatherCodes.describe(d.weatherCode), Modifier.weight(1f))
             Text(Format.pct(d.precipitationProbabilityMax), Modifier.width(48.dp))
             Text("UV ${Format.uv(d.uvIndexMax)}", Modifier.width(48.dp))

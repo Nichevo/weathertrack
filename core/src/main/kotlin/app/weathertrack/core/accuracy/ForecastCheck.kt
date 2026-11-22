@@ -47,6 +47,9 @@ data class Band(val lead: Int, val bias: Double, val low: Double, val high: Doub
 
     companion object { const val MIN_BAND_DAYS = 10 }
 }
+/** One day of a forecast with its likely range, from past errors at the same lead. */
+data class FanPoint(val date: LocalDate, val lead: Int, val value: Double, val low: Double, val high: Double, val days: Int)
+
 enum class Confidence(val label: String) { HIGH("High"), MEDIUM("Medium"), LOW("Low"), UNKNOWN("Not enough data") }
 
 object ForecastCheck {
@@ -83,6 +86,36 @@ object ForecastCheck {
             if (errs.isEmpty()) null else LeadError(lead, errs.size, errs.map { abs(it) }.average(), errs.average(), quantile(errs, 0.1), quantile(errs, 0.9))
         }
     }
+
+    /** How far off daily rain totals were, by lead, in mm. Error = actual − forecast. */
+    fun rainErrors(runs: List<RunHour>, obs: List<ObsHour>, zone: ZoneId, from: LocalDate, leads: List<Int> = LEADS): List<LeadError> {
+        val actual = dailyActuals(obs, zone)
+        val fc = dailyRuns(runs, zone)
+        return leads.mapNotNull { lead ->
+            val errs = actual.filterKeys { !it.isBefore(from) }.mapNotNull { (d, a) -> fc[d to lead]?.let { a.rainMm - it.second } }
+            if (errs.isEmpty()) null else LeadError(lead, errs.size, errs.map { abs(it) }.average(), errs.average(), quantile(errs, 0.1), quantile(errs, 0.9))
+        }
+    }
+
+    /** The error stats for [lead] days ahead: the nearest longer lead measured, or the longest one. */
+    fun errorFor(errors: List<LeadError>, lead: Int): LeadError? =
+        errors.filter { it.lead >= lead }.minByOrNull { it.lead } ?: errors.maxByOrNull { it.lead }
+
+    /**
+     * Each forecast day with the range that 8 in 10 past forecasts at that lead landed in.
+     * [floorZero] keeps ranges at or above zero (for rain).
+     */
+    fun fan(days: List<Pair<LocalDate, Double?>>, today: LocalDate, errors: List<LeadError>, floorZero: Boolean = false): List<FanPoint> =
+        days.mapNotNull { (d, v) ->
+            v ?: return@mapNotNull null
+            val lead = java.time.temporal.ChronoUnit.DAYS.between(today, d).toInt()
+            if (lead < 0) return@mapNotNull null
+            val e = errorFor(errors, lead) ?: return@mapNotNull null
+            var lo = v + e.p10
+            var hi = v + e.p90
+            if (floorZero) { lo = lo.coerceAtLeast(0.0); hi = hi.coerceAtLeast(0.0) }
+            FanPoint(d, lead, v, minOf(lo, v), maxOf(hi, v), e.days)
+        }
 
     /** Likely-range bands for daily highs by lead, from the same errors. */
     fun bands(errors: List<LeadError>): Map<Int, Band> =
