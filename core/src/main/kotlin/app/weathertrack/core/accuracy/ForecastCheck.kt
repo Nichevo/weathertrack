@@ -223,3 +223,61 @@ object ForecastCheck {
         return s[lo] + (s[hi] - s[lo]) * (pos - lo)
     }
 }
+
+/** A "raining or dry" report the user made, with what the forecast and radar said at that moment. */
+data class RainReport(
+    val time: Long,
+    val raining: Boolean,
+    /** 15-minute forecast rain (mm) for the step holding [time]; null if unknown. */
+    val forecastMm: Double?,
+    /** Share of radar pixels over the spot showing rain (0..1); null if no radar. */
+    val radarHere: Double?,
+)
+
+data class ReportScore(val reports: Int, val forecastRight: Int, val forecastJudged: Int, val radarRight: Int, val radarJudged: Int) {
+    val forecastShare: Double? get() = if (forecastJudged == 0) null else forecastRight.toDouble() / forecastJudged
+    val radarShare: Double? get() = if (radarJudged == 0) null else radarRight.toDouble() / radarJudged
+}
+
+/** How far to trust today's numbers, from this place's record. */
+data class Sureness(
+    /** Highest rain chance in the window, as forecast. */
+    val rainChance: Double?,
+    /** How often it actually rained when the forecast said about that much (null without enough hours). */
+    val rainHappened: Double?,
+    val rainHours: Int,
+    val jacket: JacketScore?,
+    val todayHigh: Double?,
+    val highBand: Band?,
+)
+
+object Feedback {
+    const val WET_MM = 0.1
+    const val RADAR_WET = 0.3
+    /** A report counts as "now" for this long. */
+    const val FRESH_S = 45 * 60L
+
+    fun score(reports: List<RainReport>): ReportScore {
+        var fr = 0; var fj = 0; var rr = 0; var rj = 0
+        for (r in reports) {
+            r.forecastMm?.let { fj++; if ((it >= WET_MM) == r.raining) fr++ }
+            r.radarHere?.let { rj++; if ((it >= RADAR_WET) == r.raining) rr++ }
+        }
+        return ReportScore(reports.size, fr, fj, rr, rj)
+    }
+
+    /** The newest report if it is recent enough to describe right now. */
+    fun current(reports: List<RainReport>, now: Long): RainReport? =
+        reports.filter { now - it.time in 0..FRESH_S }.maxByOrNull { it.time }
+
+    /** How often it rained when the stored forecast said about [chance]%; null with under [minHours] hours. */
+    fun calibrated(reliability: List<Reliability>, chance: Double?, minHours: Int = 20): Pair<Double, Int>? {
+        chance ?: return null
+        val bucket = reliability.firstOrNull { r ->
+            val (lo, hi) = when (r.label) { "0–10%" -> 0.0 to 10.0; "10–30%" -> 10.0 to 30.0; "30–50%" -> 30.0 to 50.0; "50–70%" -> 50.0 to 70.0; else -> 70.0 to 100.1 }
+            chance >= lo && chance < hi
+        } ?: return null
+        val share = bucket.observedShare ?: return null
+        return if (bucket.hours < minHours) null else share to bucket.hours
+    }
+}

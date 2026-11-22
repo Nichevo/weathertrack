@@ -51,6 +51,8 @@ data class ForecastCheckState(
     /** The current 7-day forecast with likely ranges from past errors. */
     val tempFan: List<app.weathertrack.core.accuracy.FanPoint> = emptyList(),
     val rainFan: List<app.weathertrack.core.accuracy.FanPoint> = emptyList(),
+    /** How the forecast and radar matched the user's own raining / dry reports in the period. */
+    val reports: app.weathertrack.core.accuracy.ReportScore? = null,
 )
 
 class ForecastCheckViewModel(
@@ -119,12 +121,14 @@ class ForecastCheckViewModel(
         val iss = issued
         val st = settings.current
         val daily = weather.cachedForecast(place)?.forecast?.daily.orEmpty()
+        val myReports = runCatching { repo.reports(place.id, fromEpoch) }.getOrDefault(emptyList())
         val result = withContext(Dispatchers.Default) {
             val actuals = ForecastCheck.dailyActuals(o, zone)
             val leads = ForecastCheck.highErrors(r, o, zone, from)
             val rainLeads = ForecastCheck.rainErrors(r, o, zone, from)
             val dated = daily.mapNotNull { d -> runCatching { LocalDate.parse(d.date) }.getOrNull()?.let { it to d } }
             ForecastCheckState(
+                reports = app.weathertrack.core.accuracy.Feedback.score(myReports),
                 tempFan = ForecastCheck.fan(dated.map { it.first to it.second.temperatureMax }, today, leads),
                 rainFan = ForecastCheck.fan(dated.map { it.first to it.second.precipitationSum }, today, rainLeads, floorZero = true),
                 jacket = ForecastCheck.jacket(iss, o, zone, from, st.jacketThresholds, morningHour = st.morningTime.hour),
@@ -141,7 +145,7 @@ class ForecastCheckViewModel(
             it.copy(
                 jacket = result.jacket, rainCalls = result.rainCalls, leads = result.leads, bands = result.bands,
                 reliability = result.reliability, misses = result.misses, actualDays = result.actualDays,
-                firstActual = result.firstActual, tempFan = result.tempFan, rainFan = result.rainFan,
+                firstActual = result.firstActual, tempFan = result.tempFan, rainFan = result.rainFan, reports = result.reports,
             )
         }
     }

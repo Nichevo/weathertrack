@@ -171,3 +171,15 @@ interface ForecastCheckDao {
     @Query("SELECT COUNT(DISTINCT pull_id) FROM forecast_hour WHERE place_id = :placeId")
     suspend fun storedPulls(placeId: Long): Int
 }
+
+@Dao
+interface UserReportDao {
+    @Insert
+    suspend fun insert(report: UserReportEntity): Long
+
+    @Query("SELECT * FROM user_report WHERE place_id = :placeId AND reported_at >= :from ORDER BY reported_at")
+    suspend fun since(placeId: Long, from: Long): List<UserReportEntity>
+
+    @Query("SELECT COUNT(*) FROM user_report")
+    fun count(): Flow<Int>
+}

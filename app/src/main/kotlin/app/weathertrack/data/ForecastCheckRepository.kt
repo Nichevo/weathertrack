@@ -95,6 +95,26 @@ class ForecastCheckRepository(
 
     suspend fun storedPulls(placeId: Long): Int = dao.storedPulls(placeId)
 
+    private val reportDao = db.userReportDao()
+
+    /** Saves a "raining" / "dry" report with what the forecast and radar said at that moment. */
+    suspend fun report(
+        place: PlaceEntity, raining: Boolean, forecastMm: Double?, forecastChance: Double?,
+        radar: app.weathertrack.core.map.RadarSpot?,
+    ) {
+        reportDao.insert(
+            app.weathertrack.data.db.UserReportEntity(
+                placeId = place.id, reportedAt = System.currentTimeMillis() / 1000,
+                latitude = place.latitude, longitude = place.longitude, raining = raining,
+                forecastMm = forecastMm, forecastChance = forecastChance,
+                radarHere = radar?.here, radarTime = radar?.time,
+            ),
+        )
+    }
+
+    suspend fun reports(placeId: Long, from: Long): List<app.weathertrack.core.accuracy.RainReport> =
+        reportDao.since(placeId, from).map { app.weathertrack.core.accuracy.RainReport(it.reportedAt, it.raining, it.forecastMm, it.radarHere) }
+
     companion object {
         const val ENDPOINT_PAST = "forecast_past_hours"
         const val ENDPOINT_RUNS = "previous_runs"
@@ -112,4 +132,28 @@ suspend fun ForecastCheckRepository.highBands(place: PlaceEntity, days: Long = 9
     val fromEpoch = from.atStartOfDay(zone).toEpochSecond()
     val errors = app.weathertrack.core.accuracy.ForecastCheck.highErrors(runs(place.id, fromEpoch), observed(place.id, fromEpoch), zone, from)
     return app.weathertrack.core.accuracy.ForecastCheck.bands(errors)
+}
+
+/** What this place's record says about how far to trust the forecast, over the last [days] days. */
+data class TrustRecord(
+    val reliability: List<app.weathertrack.core.accuracy.Reliability>,
+    val jacket: app.weathertrack.core.accuracy.JacketScore,
+    val reports: app.weathertrack.core.accuracy.ReportScore,
+)
+
+suspend fun ForecastCheckRepository.trustRecord(
+    place: PlaceEntity, thresholds: app.weathertrack.core.jacket.JacketThresholds, morningHour: Int, days: Long = 90,
+): TrustRecord {
+    val zone = app.weathertrack.ui.Format.zone(place.timezone)
+    val from = java.time.LocalDate.now(zone).minusDays(days)
+    val fromEpoch = from.atStartOfDay(zone).toEpochSecond()
+    val now = System.currentTimeMillis() / 1000
+    val obs = observed(place.id, fromEpoch)
+    val iss = issued(place.id, fromEpoch, now)
+    val FC = app.weathertrack.core.accuracy.ForecastCheck
+    return TrustRecord(
+        FC.reliability(iss, obs, fromEpoch),
+        FC.jacket(iss, obs, zone, from, thresholds, morningHour = morningHour),
+        app.weathertrack.core.accuracy.Feedback.score(reports(place.id, fromEpoch)),
+    )
 }

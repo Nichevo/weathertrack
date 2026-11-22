@@ -173,6 +173,20 @@ fun ForecastCheckScreen(
                 }
             }
 
+            Section("Your reports") {
+                val r = s.reports
+                if (r == null || r.reports == 0) {
+                    Text("Tap Raining or Dry on Today when you're out. Each report is saved with what the forecast and radar " +
+                        "said at that moment, and scored here.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Text("${r.reports} reports in this period")
+                    r.forecastShare?.let { Text("Forecast agreed with you: ${r.forecastRight} of ${r.forecastJudged} (${(it * 100).roundToInt()}%)") }
+                    r.radarShare?.let { Text("Radar agreed with you: ${r.radarRight} of ${r.radarJudged} (${(it * 100).roundToInt()}%)") }
+                    Text("Today trusts your report for 45 minutes, then radar over the forecast for \"raining now\".",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
             Section("Data behind this") {
                 Text("${s.actualDays} days of actuals in this period" + (s.firstActual?.let { ", back to ${it.format(missDate)}" } ?: ""))
                 Text("${s.storedPulls} forecasts stored by this app for this place")

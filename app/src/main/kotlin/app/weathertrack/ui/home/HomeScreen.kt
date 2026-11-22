@@ -82,6 +82,7 @@ fun HomeScreen(
     vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val onReport: (Boolean) -> Unit = vm::report
     val forecast = state.stored?.forecast
     val zone = Format.zone(forecast?.timezone ?: state.place?.timezone)
 
@@ -126,8 +127,12 @@ fun HomeScreen(
                 if (jacket == null) {
                     Text(if (state.loading) "Getting the forecast…" else "No forecast yet. Tap refresh to try again.")
                 } else {
-                    VerdictCard(jacket, zone, state.radar)
+                    VerdictCard(jacket, zone, state.radar, state.myReport)
                 }
+            }
+            if (state.jacket != null) {
+                item { ReportRow(state.reportMessage, onReport = onReport) }
+                item { SureCard(state, zone) }
             }
             if (state.walks.isNotEmpty()) {
                 item { SectionTitle("Walks") }
@@ -159,10 +164,15 @@ fun HomeScreen(
  * The "raining now / rain from" line. The 15-minute forecast is a model, so when a recent radar
  * frame is available it decides whether it is raining at the spot right now.
  */
-private fun rainNowText(j: JacketResult, radar: app.weathertrack.core.map.RadarSpot?, zone: ZoneId): String? {
+private fun rainNowText(
+    j: JacketResult, radar: app.weathertrack.core.map.RadarSpot?, zone: ZoneId,
+    mine: app.weathertrack.core.accuracy.RainReport? = null,
+): String? {
     val until = j.rainEndsAt?.let { " until about ${Format.time(it, zone)}" } ?: ""
     val seen = radar?.let { " (radar ${Format.time(it.time, zone)})" } ?: ""
     return when {
+        mine != null -> (if (mine.raining) "Raining (you reported at " else "Dry (you reported at ") + "${Format.time(mine.time, zone)})" +
+            if (!mine.raining && j.rainStartsAt != null && j.rainStartsAt!! > mine.time) ". Rain forecast from about ${Format.time(j.rainStartsAt!!, zone)}" else ""
         radar == null -> j.rainStartsAt?.let { if (j.rainingNow) "Raining now$until" else "Rain likely from about ${Format.time(it, zone)}$until" }
         radar.wetHere -> "Raining here now$seen" + if (j.rainingNow) until else ""
         j.rainingNow -> if (radar.wetNearby) "Showers nearby, dry right here$seen" else "Dry here on radar$seen, though the forecast shows rain"
@@ -170,6 +180,76 @@ private fun rainNowText(j: JacketResult, radar: app.weathertrack.core.map.RadarS
             if (radar.wetNearby) ". Showers nearby on radar" else ""
         radar.wetNearby -> "Showers nearby on radar$seen"
         else -> null
+    }
+}
+
+/** "It's raining" / "It's dry" buttons: the report is stored with what the forecast and radar said. */
+@Composable
+private fun ReportRow(message: String?, onReport: (Boolean) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Right now here:", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            androidx.compose.material3.OutlinedButton(onClick = { onReport(true) }) {
+                app.weathertrack.ui.WeatherIcon(63, true, size = 20.dp); Spacer(Modifier.width(6.dp)); Text("Raining")
+            }
+            androidx.compose.material3.OutlinedButton(onClick = { onReport(false) }) {
+                app.weathertrack.ui.WeatherIcon(0, true, size = 20.dp); Spacer(Modifier.width(6.dp)); Text("Dry")
+            }
+        }
+        message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+    }
+}
+
+/** The forecast's key numbers next to how often forecasts like them have been right here. */
+@Composable
+private fun SureCard(state: HomeState, zone: ZoneId) {
+    val j = state.jacket ?: return
+    val trust = state.trust
+    val today = java.time.LocalDate.now(zone).toString()
+    val high = state.stored?.forecast?.daily?.firstOrNull { it.date == today }?.temperatureMax
+    val band = state.highBands[0]
+    val cal = trust?.let { app.weathertrack.core.accuracy.Feedback.calibrated(it.reliability, j.maxRainProbability) }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("How sure is this?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            // Rain chance against what actually happened when forecasts said the same.
+            val chance = j.maxRainProbability
+            if (chance != null) {
+                if (cal != null) {
+                    val (happened, hours) = cal
+                    val diff = happened * 100 - chance
+                    Text("Rain: forecast up to ${Format.pct(chance)} by ${Format.time(j.windowEnd, zone)}. " +
+                        "When it has said that here, it rained ${Format.pct(happened * 100)} of the time ($hours hours).")
+                    val tip = when {
+                        diff <= -15 -> "Rain is less likely than the forecast suggests."
+                        diff >= 15 -> "Rain is more likely than the forecast suggests."
+                        else -> null
+                    }
+                    tip?.let { Text(it, fontWeight = FontWeight.SemiBold) }
+                } else {
+                    Text("Rain: forecast up to ${Format.pct(chance)}. Not enough stored forecasts yet to check how reliable that is here.",
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            if (high != null && band != null && band.confidence != Confidence.UNKNOWN) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("High ${Format.temp(high)}, likely ${Format.range(high + band.low, high + band.high, Format::temp, " to ")}  ",
+                        Modifier.weight(1f))
+                    app.weathertrack.ui.accuracy.ConfidenceTag(band.confidence)
+                }
+            }
+            trust?.jacket?.takeIf { it.decided > 0 }?.let { js ->
+                Text("Jacket call right on ${js.right} of ${js.decided} mornings lately (${Format.pct((js.share ?: 0.0) * 100)}).")
+            }
+            trust?.reports?.takeIf { it.reports > 0 }?.let { r ->
+                val parts = listOfNotNull(
+                    r.forecastShare?.let { "forecast agreed ${r.forecastRight} of ${r.forecastJudged}" },
+                    r.radarShare?.let { "radar agreed ${r.radarRight} of ${r.radarJudged}" },
+                )
+                Text("Your ${r.reports} reports: ${parts.joinToString(", ")}.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 
@@ -203,7 +283,10 @@ private fun PlacePicker(state: HomeState, onSelect: (Long) -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun VerdictCard(j: JacketResult, zone: ZoneId, radar: app.weathertrack.core.map.RadarSpot?) {
+private fun VerdictCard(
+    j: JacketResult, zone: ZoneId, radar: app.weathertrack.core.map.RadarSpot?,
+    mine: app.weathertrack.core.accuracy.RainReport?,
+) {
     val (bg, fg) = when (j.verdict) {
         Verdict.YES -> JacketAmberContainer to OnJacketAmberContainer
         Verdict.MAYBE -> JacketAmberContainer.copy(alpha = 0.55f) to OnJacketAmberContainer
@@ -236,7 +319,7 @@ private fun VerdictCard(j: JacketResult, zone: ZoneId, radar: app.weathertrack.c
                     )
                 }
             }
-            rainNowText(j, radar, zone)?.let { Text(it, fontWeight = FontWeight.Medium) }
+            rainNowText(j, radar, zone, mine)?.let { Text(it, fontWeight = FontWeight.Medium) }
             if (j.reasons.isEmpty()) {
                 Text("Dry, light winds and mild for the next ${j.windowHours} hours.")
             } else {

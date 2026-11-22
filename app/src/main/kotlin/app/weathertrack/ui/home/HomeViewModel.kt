@@ -19,6 +19,7 @@ import app.weathertrack.data.StoredForecast
 import app.weathertrack.data.WeatherRepository
 import app.weathertrack.data.db.PlaceEntity
 import app.weathertrack.data.highBands
+import app.weathertrack.data.trustRecord
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +40,11 @@ data class HomeState(
     val highBands: Map<Int, app.weathertrack.core.accuracy.Band> = emptyMap(),
     /** What the latest radar frame shows at the place; null if unavailable. */
     val radar: app.weathertrack.core.map.RadarSpot? = null,
+    /** How often forecasts here have been right lately. */
+    val trust: app.weathertrack.data.TrustRecord? = null,
+    /** The user's own report if made in the last 45 minutes. */
+    val myReport: app.weathertrack.core.accuracy.RainReport? = null,
+    val reportMessage: String? = null,
 )
 
 class HomeViewModel(
@@ -93,6 +99,35 @@ class HomeViewModel(
             forecastCheck.highBands(place)
         }.getOrElse { runCatching { forecastCheck.highBands(place) }.getOrDefault(emptyMap()) }
         if (_state.value.place?.id == place.id) _state.update { it.copy(highBands = bands) }
+        loadTrust(place)
+    }
+
+    private suspend fun loadTrust(place: PlaceEntity) {
+        val cfg = settings.current
+        val trust = runCatching { forecastCheck.trustRecord(place, cfg.jacketThresholds, cfg.morningTime.hour) }.getOrNull()
+        val now = System.currentTimeMillis() / 1000
+        val mine = runCatching { app.weathertrack.core.accuracy.Feedback.current(forecastCheck.reports(place.id, now - 3600), now) }.getOrNull()
+        if (_state.value.place?.id == place.id) _state.update { it.copy(trust = trust, myReport = mine) }
+    }
+
+    /** Saves the user's "raining" / "dry" report, with what the forecast and radar said right now. */
+    fun report(raining: Boolean) {
+        val s = _state.value
+        val place = s.place ?: return
+        viewModelScope.launch {
+            val now = System.currentTimeMillis() / 1000
+            val f = s.stored?.forecast
+            val mm = f?.quarterHourly?.firstOrNull { now >= it.time && now < it.time + 900 }?.precipitation
+            val chance = f?.hourly?.firstOrNull { now >= it.time && now < it.time + 3600 }?.precipitationProbability
+            val radar = s.radar ?: runCatching { radarSpot.check(place.latitude, place.longitude) }.getOrNull()
+            runCatching { forecastCheck.report(place, raining, mm, chance, radar) }
+                .onSuccess {
+                    val zone = Format.zone(place.timezone)
+                    _state.update { it.copy(reportMessage = "Thanks. Saved \"${if (raining) "raining" else "dry"}\" at ${Format.time(now, zone)}.") }
+                    loadTrust(place)
+                }
+                .onFailure { e -> _state.update { it.copy(reportMessage = "Couldn't save that: ${e.message}") } }
+        }
     }
 
     fun refresh(trigger: String = "manual") {
