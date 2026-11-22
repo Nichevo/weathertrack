@@ -257,3 +257,23 @@ data class SourceDayEntity(
     @androidx.room.ColumnInfo(name = "rain_right") val rainRight: Int,
     @androidx.room.ColumnInfo(name = "rain_n") val rainN: Int,
 )
+
+/** "Feeling chilly", "Too warm" or "Pollen bothering me", with the weather at that moment. */
+@Entity(
+    tableName = "feeling_report",
+    indices = [Index("place_id", "reported_at")],
+)
+data class FeelingReportEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @androidx.room.ColumnInfo(name = "place_id") val placeId: Long,
+    @androidx.room.ColumnInfo(name = "reported_at") val reportedAt: Long,
+    /** "chilly", "warm" or "pollen". */
+    val kind: String,
+    val temperature: Double?,
+    @androidx.room.ColumnInfo(name = "feels_like") val feelsLike: Double?,
+    @androidx.room.ColumnInfo(name = "wind_speed") val windSpeed: Double?,
+    @androidx.room.ColumnInfo(name = "wind_gusts") val windGusts: Double?,
+    @androidx.room.ColumnInfo(name = "wind_direction") val windDirection: Double?,
+    val humidity: Double?,
+    @androidx.room.ColumnInfo(name = "cloud_cover") val cloudCover: Double?,
+)

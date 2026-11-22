@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -152,7 +153,7 @@ fun HomeScreen(
                 }
             }
             if (state.jacket != null) {
-                item { ReportRow(state.reportMessage, onReport = onReport) }
+                item { ReportRow(state.reportMessage, onReport = onReport, onFeel = vm::feel, comfort = state.comfort) }
             }
             if (state.walks.isNotEmpty()) {
                 item { SectionTitle("Walks") }
@@ -209,7 +210,10 @@ private fun rainNowText(
 
 /** "It's raining" / "It's dry" buttons: the report is stored with what the forecast and radar said. */
 @Composable
-private fun ReportRow(message: String?, onReport: (Boolean) -> Unit) {
+private fun ReportRow(
+    message: String?, onReport: (Boolean) -> Unit,
+    onFeel: (app.weathertrack.core.comfort.Feeling.Kind) -> Unit = {}, comfort: List<String> = emptyList(),
+) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Right now here:", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
@@ -220,7 +224,16 @@ private fun ReportRow(message: String?, onReport: (Boolean) -> Unit) {
                 app.weathertrack.ui.WeatherIcon(0, true, size = 20.dp); Spacer(Modifier.width(6.dp)); Text("Dry")
             }
         }
+        // How you feel: saved with the weather at the time, so the app can learn your chilly point and pollen pattern.
+        Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("I'm:", style = MaterialTheme.typography.bodyMedium)
+            androidx.compose.material3.AssistChip(onClick = { onFeel(app.weathertrack.core.comfort.Feeling.Kind.CHILLY) }, label = { Text("🥶 Chilly") })
+            androidx.compose.material3.AssistChip(onClick = { onFeel(app.weathertrack.core.comfort.Feeling.Kind.WARM) }, label = { Text("🥵 Too warm") })
+            androidx.compose.material3.AssistChip(onClick = { onFeel(app.weathertrack.core.comfort.Feeling.Kind.POLLEN) }, label = { Text("🤧 Pollen") })
+        }
         message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+        comfort.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 

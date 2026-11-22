@@ -188,6 +188,15 @@ interface UserReportDao {
 }
 
 @Dao
+interface FeelingReportDao {
+    @Insert
+    suspend fun insert(row: FeelingReportEntity): Long
+
+    @Query("SELECT * FROM feeling_report WHERE place_id = :placeId AND reported_at >= :from ORDER BY reported_at")
+    suspend fun since(placeId: Long, from: Long): List<FeelingReportEntity>
+}
+
+@Dao
 interface SourceDayDao {
     @Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
     suspend fun upsert(rows: List<SourceDayEntity>)

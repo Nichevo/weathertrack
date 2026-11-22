@@ -112,6 +112,28 @@ class ForecastCheckRepository(
         )
     }
 
+    /** Saves how you feel right now, with the weather this hour. */
+    suspend fun feeling(place: PlaceEntity, kind: app.weathertrack.core.comfort.Feeling.Kind, hour: app.weathertrack.core.model.HourPoint?,
+                        current: app.weathertrack.core.model.CurrentConditions?) {
+        db.feelingReportDao().insert(
+            app.weathertrack.data.db.FeelingReportEntity(
+                placeId = place.id, reportedAt = System.currentTimeMillis() / 1000, kind = kind.key,
+                temperature = current?.temperature ?: hour?.temperature,
+                feelsLike = current?.apparentTemperature ?: hour?.apparentTemperature,
+                windSpeed = current?.windSpeed ?: hour?.windSpeed, windGusts = current?.windGusts ?: hour?.windGusts,
+                windDirection = current?.windDirection ?: hour?.windDirection,
+                humidity = hour?.humidity, cloudCover = hour?.cloudCover,
+            ),
+        )
+    }
+
+    suspend fun feelings(placeId: Long, from: Long): List<app.weathertrack.core.comfort.Feeling> =
+        db.feelingReportDao().since(placeId, from).mapNotNull { e ->
+            app.weathertrack.core.comfort.Feeling.Kind.of(e.kind)?.let {
+                app.weathertrack.core.comfort.Feeling(e.reportedAt, it, e.temperature, e.feelsLike, e.windSpeed, e.windDirection, e.humidity)
+            }
+        }
+
     suspend fun reports(placeId: Long, from: Long): List<app.weathertrack.core.accuracy.RainReport> =
         reportDao.since(placeId, from).map { app.weathertrack.core.accuracy.RainReport(it.reportedAt, it.raining, it.forecastMm, it.radarHere) }
 
