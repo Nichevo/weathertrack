@@ -86,10 +86,18 @@ class RainMapWidgetReceiver : GlanceAppWidgetReceiver() {
 private val stepKey = ActionParameters.Key<Int>("step")
 
 class SelectStepAction : ActionCallback {
+    private companion object {
+        @Volatile var lastTapStep = -1
+        @Volatile var lastTapMs = 0L
+    }
+
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val step = (parameters[stepKey] ?: 0).coerceIn(0, RainMapWidget.STEPS - 1)
-        // Ignore repeat taps on the step already showing, so quick taps don't queue up redraws.
-        if (step == RainWidgetFrames.step(context)) return
+        // Ignore a double tap on the same button (within a second), so quick taps don't queue up redraws.
+        // Any other tap redraws, even on the step already stored: another widget or a failed redraw may have set it.
+        val nowMs = android.os.SystemClock.elapsedRealtime()
+        if (step == lastTapStep && nowMs - lastTapMs < 1000) return
+        lastTapStep = step; lastTapMs = nowMs
         RainWidgetFrames.setStep(context, step)
         runCatching { RainMapWidget().update(context, glanceId) }.onFailure { Log.w("RainMapWidget", "Step update failed", it) }
     }
@@ -211,7 +219,8 @@ private fun Content(meta: RainWidgetFrames.Meta?, step: Int, bitmap: Bitmap?, er
 object RainWidgetFrames {
     // Kept small: the picture travels to the home screen inside one update, which must stay well under 1 MB.
     private const val WIDTH = 480
-    private const val HEIGHT = 344
+    /** 200 world px × (480 / 280) = 342.9, so 342 leaves no unpainted row at the bottom. */
+    private const val HEIGHT = 342
     /** Map area in world pixels at [ZOOM] (unchanged from before), drawn scaled to the frame. */
     private const val VIEW_W = 280.0
     private const val VIEW_H = 200.0

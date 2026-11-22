@@ -198,6 +198,19 @@ interface SourceHourDao {
     @Query("SELECT MAX(issued_at) FROM source_hour WHERE place_id = :placeId AND source = :source")
     suspend fun lastIssued(placeId: Long, source: String): Long?
 
+    /** Only rows issued [minLeadS]..[maxLeadS] ahead of their hour: the ones scoring looks at. */
+    @Query("SELECT * FROM source_hour WHERE place_id = :placeId AND time >= :from AND time <= :to AND time - issued_at >= :minLeadS AND time - issued_at <= :maxLeadS")
+    suspend fun forScoring(placeId: Long, from: Long, to: Long, minLeadS: Long, maxLeadS: Long): List<SourceHourEntity>
+
+    /**
+     * Keeps the table small: drops rows of deleted places, rows older than [before], and past hours
+     * that a later forecast (still at least [minLeadS] ahead) has replaced, since scoring only uses that later one.
+     */
+    @Query("""DELETE FROM source_hour WHERE place_id NOT IN (SELECT id FROM place) OR time < :before OR (time < :now AND EXISTS (
+        SELECT 1 FROM source_hour b WHERE b.place_id = source_hour.place_id AND b.source = source_hour.source
+        AND b.time = source_hour.time AND b.issued_at > source_hour.issued_at AND b.time - b.issued_at >= :minLeadS))""")
+    suspend fun prune(now: Long, before: Long, minLeadS: Long): Int
+
     @Query("SELECT COUNT(*) FROM source_hour")
     fun count(): Flow<Int>
 }

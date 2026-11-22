@@ -138,8 +138,10 @@ class HomeViewModel(
             val o = forecastCheck.observed(place.id, fromEpoch)
             val daily = (weather.cachedForecast(place)?.forecast?.daily).orEmpty()
                 .mapNotNull { d -> runCatching { java.time.LocalDate.parse(d.date) }.getOrNull()?.let { it to d } }
-            val hi = FC.seasonalHighErrors(r, o, zone, today)
-            val lo = FC.lowErrors(r, o, zone, today.minusDays(90))
+            // A range needs enough checked days behind it to mean "8 in 10".
+            val enough = app.weathertrack.core.accuracy.Band.MIN_BAND_DAYS
+            val hi = FC.seasonalHighErrors(r, o, zone, today).filter { it.days >= enough }
+            val lo = FC.lowErrors(r, o, zone, today.minusDays(90)).filter { it.days >= enough }
             FC.fan(daily.map { it.first to it.second.temperatureMax }, today, hi) to
                 FC.fan(daily.map { it.first to it.second.temperatureMin }, today, lo)
         }.getOrNull() ?: return
@@ -149,7 +151,7 @@ class HomeViewModel(
     /** Pulls every forecast source (when due), then scores them and blends. */
     private suspend fun loadSources(place: PlaceEntity) {
         val now = System.currentTimeMillis() / 1000
-        runCatching { sources.refresh(place, weather.cachedForecast(place)?.forecast, "app") }
+        runCatching { sources.refresh(place, weather.cachedForecast(place), "app") }
         val view = runCatching {
             val from = now - 60 * 86400L
             sources.view(place.id, forecastCheck.observed(place.id, from), forecastCheck.reports(place.id, from))

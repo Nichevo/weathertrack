@@ -17,8 +17,9 @@ import app.weathertrack.data.db.SourceHourDao
 import app.weathertrack.data.db.SourceHourEntity
 import app.weathertrack.data.net.HttpFetcher
 import app.weathertrack.data.net.HttpResult
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -37,35 +38,47 @@ data class SourceView(
 class SourceRepository(private val http: HttpFetcher, private val rawDao: RawPullDao, private val dao: SourceHourDao) {
     private val lock = Mutex()
 
-    /** Fetches sources that are due (models hourly, MET Norway every 3 hours as its terms ask). */
-    suspend fun refresh(place: PlaceEntity, main: Forecast?, trigger: String) = lock.withLock {
+    /**
+     * Fetches sources that are due (models hourly, MET Norway every 3 hours as its terms ask).
+     * [main] is the app's own stored forecast, recorded as issued when it was fetched, not now.
+     * [force] (the Refresh button) re-pulls the Open-Meteo sources if the last pull is over 10 minutes old.
+     */
+    suspend fun refresh(place: PlaceEntity, main: StoredForecast?, trigger: String, force: Boolean = false) = lock.withLock {
         val now = System.currentTimeMillis() / 1000
-        suspend fun due(key: String, everyS: Long) = (dao.lastIssued(place.id, key) ?: 0L) < now - everyS
-        coroutineScope {
-            val jobs = mutableListOf<kotlinx.coroutines.Deferred<List<SourceHour>>>()
-            if (main != null && due(Sources.MAIN.id, HOUR - 300)) {
-                jobs += async { main.hourly.map { SourceHour(Sources.MAIN.id, it.time, it.temperature, it.precipitation, it.precipitationProbability) } }
+        suspend fun due(key: String, everyS: Long) = (dao.lastIssued(place.id, key) ?: 0L) < now - if (force) minOf(everyS, FORCE_MIN_S) else everyS
+        val pulls = supervisorScope {
+            val jobs = mutableListOf<Deferred<Pair<Long, List<SourceHour>>>>()
+            if (main != null) {
+                val issued = main.fetchedAtMs / 1000
+                if (issued > (dao.lastIssued(place.id, Sources.MAIN.id) ?: 0L)) jobs += async {
+                    issued to main.forecast.hourly.map { SourceHour(Sources.MAIN.id, it.time, it.temperature, it.precipitation, it.precipitationProbability) }
+                }
             }
             if (due(Sources.MODELS.first().id, HOUR - 300)) jobs += async {
-                fetch(place, "source_models", trigger, Sources.modelsUrl(place.latitude, place.longitude, Sources.MODELS),
+                now to fetch(place, "source_models", trigger, Sources.modelsUrl(place.latitude, place.longitude, Sources.MODELS),
                     fallback = Sources.modelsUrl(place.latitude, place.longitude, Sources.MODELS_SAFE)) { body ->
                     Sources.parseModels(body, Sources.MODELS)
                 }
             }
             Sources.ENSEMBLES.forEach { e ->
                 if (due(Sources.key(e), 3 * HOUR - 300)) jobs += async {
-                    fetch(place, "source_ensemble_${e.id}", trigger, Sources.ensembleUrl(place.latitude, place.longitude, e)) { Sources.parseEnsemble(it, e) }
+                    now to fetch(place, "source_ensemble_${e.id}", trigger, Sources.ensembleUrl(place.latitude, place.longitude, e)) { Sources.parseEnsemble(it, e) }
                 }
             }
-            if (due(Sources.METNO.id, 3 * HOUR)) jobs += async {
-                fetch(place, "source_metno", trigger, Sources.metnoUrl(place.latitude, place.longitude)) { Sources.parseMetno(it) }
+            // MET Norway asks for no more than one pull per 3 hours here, so Refresh doesn't hurry it.
+            if ((dao.lastIssued(place.id, Sources.METNO.id) ?: 0L) < now - 3 * HOUR) jobs += async {
+                now to fetch(place, "source_metno", trigger, Sources.metnoUrl(place.latitude, place.longitude)) { Sources.parseMetno(it) }
             }
-            val rows = jobs.flatMap { runCatching { it.await() }.getOrDefault(emptyList()) }
-                .filter { it.time in (now - HOUR)..(now + KEEP_AHEAD_H * HOUR) }
-                .map { SourceHourEntity(placeId = place.id, source = it.source, issuedAt = now, time = it.time,
-                    temperature = it.temperature, precipitation = it.precipitation, rainChance = it.rainChance) }
-            if (rows.isNotEmpty()) dao.insertAll(rows)
+            // One source failing (network, parse or database) must not lose the others.
+            jobs.mapNotNull { j -> runCatching { j.await() }.onFailure { Log.w("Sources", "A source failed", it) }.getOrNull() }
         }
+        val rows = pulls.flatMap { (issuedAt, hours) ->
+            hours.filter { it.time in (issuedAt - HOUR)..(issuedAt + KEEP_AHEAD_H * HOUR) }
+                .map { SourceHourEntity(placeId = place.id, source = it.source, issuedAt = issuedAt, time = it.time,
+                    temperature = it.temperature, precipitation = it.precipitation, rainChance = it.rainChance) }
+        }
+        if (rows.isNotEmpty()) dao.insertAll(rows)
+        runCatching { dao.prune(now, now - KEEP_DAYS * 86400, MIN_LEAD_H * HOUR) }.onFailure { Log.w("Sources", "Prune failed", it) }
     }
 
     private suspend fun fetch(
@@ -96,13 +109,13 @@ class SourceRepository(private val http: HttpFetcher, private val rawDao: RawPul
             .map { SourceHour(it.source, it.time, it.temperature, it.precipitation, it.rainChance) }
 
     suspend fun issued(placeId: Long, from: Long, to: Long): List<IssuedSourceHour> =
-        dao.between(placeId, from, to).map { IssuedSourceHour(it.source, it.issuedAt, it.time, it.temperature, it.precipitation, it.rainChance) }
+        dao.forScoring(placeId, from, to, MIN_LEAD_H * HOUR, (MAX_LEAD_H + 1) * HOUR - 1).map { IssuedSourceHour(it.source, it.issuedAt, it.time, it.temperature, it.precipitation, it.rainChance) }
 
     /** Everything the Sources screen and Today need, scored over the last [days] days. */
     suspend fun view(placeId: Long, obs: List<ObsHour>, reports: List<RainReport>, days: Long = 60): SourceView {
         val now = System.currentTimeMillis() / 1000
         val latest = latest(placeId, now - HOUR)
-        val scores = Sources.scores(issued(placeId, now - days * 86400, now), obs, reports)
+        val scores = Sources.scores(issued(placeId, now - days * 86400, now), obs, reports, MIN_LEAD_H.toInt(), MAX_LEAD_H.toInt())
         val keys = latest.map { it.source }.distinct()
         val weights = Sources.weights(keys, scores)
         return SourceView(latest, scores, weights, Sources.blend(latest, weights, now - HOUR))
@@ -112,5 +125,11 @@ class SourceRepository(private val http: HttpFetcher, private val rawDao: RawPul
         private const val HOUR = 3600L
         /** Hours ahead stored from each pull: enough for "tomorrow" without filling the phone. */
         const val KEEP_AHEAD_H = 48
+        /** Forecast leads that count towards a source's record. */
+        private const val MIN_LEAD_H = 1L
+        private const val MAX_LEAD_H = 30L
+        /** Days of past source hours kept (scores look back 60). */
+        private const val KEEP_DAYS = 62L
+        private const val FORCE_MIN_S = 600L
     }
 }

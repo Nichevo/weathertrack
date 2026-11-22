@@ -159,17 +159,22 @@ object Sources {
     fun parseMetno(body: String): List<SourceHour> {
         val root = json.parseToJsonElement(body).jsonObject
         val series = ((root["properties"] as? JsonObject)?.get("timeseries") as? JsonArray) ?: return emptyList()
-        return series.mapNotNull { e ->
-            val o = e as? JsonObject ?: return@mapNotNull null
-            val time = (o["time"] as? JsonPrimitive)?.contentOrNull?.let { runCatching { OffsetDateTime.parse(it).toEpochSecond() }.getOrNull() } ?: return@mapNotNull null
-            val data = o["data"] as? JsonObject ?: return@mapNotNull null
-            val temp = (((data["instant"] as? JsonObject)?.get("details") as? JsonObject)?.get("air_temperature") as? JsonPrimitive)?.doubleOrNull
-            val next = ((data["next_1_hours"] as? JsonObject)?.get("details") as? JsonObject) ?: return@mapNotNull null
+        val temps = HashMap<Long, Double>()
+        val rain = LinkedHashMap<Long, Pair<Double?, Double?>>()
+        series.forEach { e ->
+            val o = e as? JsonObject ?: return@forEach
+            val time = (o["time"] as? JsonPrimitive)?.contentOrNull?.let { runCatching { OffsetDateTime.parse(it).toEpochSecond() }.getOrNull() } ?: return@forEach
+            val data = o["data"] as? JsonObject ?: return@forEach
+            (((data["instant"] as? JsonObject)?.get("details") as? JsonObject)?.get("air_temperature") as? JsonPrimitive)?.doubleOrNull
+                ?.let { temps[time] = it }
+            val next = ((data["next_1_hours"] as? JsonObject)?.get("details") as? JsonObject) ?: return@forEach
             val mm = (next["precipitation_amount"] as? JsonPrimitive)?.doubleOrNull
             val prob = (next["probability_of_precipitation"] as? JsonPrimitive)?.doubleOrNull
             // MET's next_1_hours covers the hour starting at [time]; Open-Meteo hours cover the hour ending at theirs.
-            SourceHour(METNO.id, time + 3600, temp, mm, prob ?: chanceFromMm(mm))
+            rain[time + 3600] = mm to (prob ?: chanceFromMm(mm))
         }
+        // Temperature is an instant reading, so it stays at its own time.
+        return rain.map { (t, r) -> SourceHour(METNO.id, t, temps[t], r.first, r.second) }
     }
 
     /**

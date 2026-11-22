@@ -50,7 +50,7 @@ class DropboxBackup(private val context: Context, private val exporter: DataExpo
         val verifier = b64(bytes)
         val challenge = b64(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)))
         prefs.edit().putString(KEY, appKey.trim()).putString(VERIFIER, verifier).apply()
-        return "https://www.dropbox.com/oauth2/authorize?client_id=${appKey.trim()}&response_type=code" +
+        return "https://www.dropbox.com/oauth2/authorize?client_id=${java.net.URLEncoder.encode(appKey.trim(), "UTF-8")}&response_type=code" +
             "&code_challenge=$challenge&code_challenge_method=S256&token_access_type=offline"
     }
 
