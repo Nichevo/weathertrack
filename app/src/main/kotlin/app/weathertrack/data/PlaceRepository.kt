@@ -1,14 +1,19 @@
 package app.weathertrack.data
 
 import android.content.Context
+import android.location.Geocoder
 import app.weathertrack.core.model.GeoPlace
 import app.weathertrack.data.db.PlaceDao
 import app.weathertrack.data.db.PlaceEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
+import java.util.Locale
 
 class PlaceRepository(context: Context, private val dao: PlaceDao) {
+    private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences("places", Context.MODE_PRIVATE)
     private val _selectedId = MutableStateFlow(prefs.getLong(KEY_SELECTED, -1L))
     val selectedId: StateFlow<Long> = _selectedId
@@ -50,22 +55,39 @@ class PlaceRepository(context: Context, private val dao: PlaceDao) {
         )
     }
 
-    /** Creates or moves the "My location" place. Coordinates are rounded to about 1 km. */
+    /**
+     * Creates or moves the "My location" place. Coordinates are rounded to about 1 km. The place is
+     * named after the suburb, looked up on the phone (Android Geocoder), so no extra API call is made.
+     */
     suspend fun setDeviceLocation(latitude: Double, longitude: Double): Long {
         val lat = Math.round(latitude * 100) / 100.0
         val lon = Math.round(longitude * 100) / 100.0
+        val area = suburb(lat, lon)
+        val name = area?.first ?: "My location"
+        val region = area?.second
         val existing = dao.deviceLocation()
         return if (existing == null) {
             dao.insert(
                 PlaceEntity(
-                    name = "My location", region = null, country = null, countryCode = null,
+                    name = name, region = region, country = area?.third, countryCode = null,
                     latitude = lat, longitude = lon, timezone = null, isDeviceLocation = true,
                 )
             )
         } else {
-            dao.update(existing.copy(latitude = lat, longitude = lon))
+            dao.update(existing.copy(latitude = lat, longitude = lon, name = name, region = region ?: existing.region))
             existing.id
         }
+    }
+
+    /** (suburb, city, country) for a point, or null if the phone has no geocoder or no answer. */
+    @Suppress("DEPRECATION")
+    private suspend fun suburb(lat: Double, lon: Double): Triple<String, String?, String?>? = withContext(Dispatchers.IO) {
+        if (!Geocoder.isPresent()) return@withContext null
+        runCatching {
+            val a = Geocoder(appContext, Locale.ENGLISH).getFromLocation(lat, lon, 1)?.firstOrNull() ?: return@runCatching null
+            val suburb = a.subLocality ?: a.locality ?: return@runCatching null
+            Triple(suburb, a.locality?.takeIf { it != suburb } ?: a.adminArea, a.countryName)
+        }.getOrNull()
     }
 
     suspend fun delete(place: PlaceEntity) {

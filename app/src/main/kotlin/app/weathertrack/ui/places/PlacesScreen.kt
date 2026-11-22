@@ -175,11 +175,10 @@ fun PlacesScreen(vm: PlacesViewModel = viewModel(factory = PlacesViewModel.Facto
                     },
                     headlineContent = { Text(p.name) },
                     supportingContent = {
-                        Text(
-                            listOfNotNull(p.region, p.country).distinct().joinToString(", ").ifEmpty {
-                                String.format(java.util.Locale.US, "%.2f, %.2f", p.latitude, p.longitude)
-                            }
-                        )
+                        val where = listOfNotNull(p.region, p.country).distinct().joinToString(", ").ifEmpty {
+                            String.format(java.util.Locale.US, "%.2f, %.2f", p.latitude, p.longitude)
+                        }
+                        Text(if (p.isDeviceLocation && p.name != "My location") "My location · $where" else where)
                     },
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
