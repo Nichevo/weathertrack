@@ -125,7 +125,7 @@ fun HomeScreen(
                 if (jacket == null) {
                     Text(if (state.loading) "Getting the forecast…" else "No forecast yet. Tap refresh to try again.")
                 } else {
-                    VerdictCard(jacket, zone)
+                    VerdictCard(jacket, zone, state.radar)
                 }
             }
             if (state.walks.isNotEmpty()) {
@@ -151,6 +151,24 @@ fun HomeScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * The "raining now / rain from" line. The 15-minute forecast is a model, so when a recent radar
+ * frame is available it decides whether it is raining at the spot right now.
+ */
+private fun rainNowText(j: JacketResult, radar: app.weathertrack.core.map.RadarSpot?, zone: ZoneId): String? {
+    val until = j.rainEndsAt?.let { " until about ${Format.time(it, zone)}" } ?: ""
+    val seen = radar?.let { " (radar ${Format.time(it.time, zone)})" } ?: ""
+    return when {
+        radar == null -> j.rainStartsAt?.let { if (j.rainingNow) "Raining now$until" else "Rain likely from about ${Format.time(it, zone)}$until" }
+        radar.wetHere -> "Raining here now$seen" + if (j.rainingNow) until else ""
+        j.rainingNow -> if (radar.wetNearby) "Showers nearby, dry right here$seen" else "Dry here on radar$seen, though the forecast shows rain"
+        j.rainStartsAt != null -> "Rain likely from about ${Format.time(j.rainStartsAt!!, zone)}$until" +
+            if (radar.wetNearby) ". Showers nearby on radar" else ""
+        radar.wetNearby -> "Showers nearby on radar$seen"
+        else -> null
     }
 }
 
@@ -184,7 +202,7 @@ private fun PlacePicker(state: HomeState, onSelect: (Long) -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun VerdictCard(j: JacketResult, zone: ZoneId) {
+private fun VerdictCard(j: JacketResult, zone: ZoneId, radar: app.weathertrack.core.map.RadarSpot?) {
     val (bg, fg) = when (j.verdict) {
         Verdict.YES -> JacketAmberContainer to OnJacketAmberContainer
         Verdict.MAYBE -> JacketAmberContainer.copy(alpha = 0.55f) to OnJacketAmberContainer
@@ -217,11 +235,7 @@ private fun VerdictCard(j: JacketResult, zone: ZoneId) {
                     )
                 }
             }
-            j.rainStartsAt?.let { start ->
-                val until = j.rainEndsAt?.let { " until about ${Format.time(it, zone)}" } ?: ""
-                val text = if (j.rainingNow) "Raining now$until" else "Rain likely from about ${Format.time(start, zone)}$until"
-                Text(text, fontWeight = FontWeight.Medium)
-            }
+            rainNowText(j, radar, zone)?.let { Text(it, fontWeight = FontWeight.Medium) }
             if (j.reasons.isEmpty()) {
                 Text("Dry, light winds and mild for the next ${j.windowHours} hours.")
             } else {

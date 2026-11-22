@@ -37,6 +37,8 @@ data class HomeState(
     val error: String? = null,
     /** Likely range of daily highs by lead (days ahead), learned from Forecast check. */
     val highBands: Map<Int, app.weathertrack.core.accuracy.Band> = emptyMap(),
+    /** What the latest radar frame shows at the place; null if unavailable. */
+    val radar: app.weathertrack.core.map.RadarSpot? = null,
 )
 
 class HomeViewModel(
@@ -45,6 +47,7 @@ class HomeViewModel(
     private val updateWidgets: suspend () -> Unit,
     private val settings: SettingsRepository,
     private val forecastCheck: app.weathertrack.data.ForecastCheckRepository,
+    private val radarSpot: app.weathertrack.map.RadarSpotChecker,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state
@@ -69,12 +72,18 @@ class HomeViewModel(
             placeRepo.ensureDefaults()
             val place = placeRepo.selected() ?: return@launch
             val cached = weather.cachedForecast(place)
-            _state.update { it.copy(place = place, stored = cached, error = null) }
+            _state.update { it.copy(place = place, stored = cached, error = null, radar = if (it.place?.id == place.id) it.radar else null) }
             recompute()
             updateWidgets() // the widget follows the selected place
             if (cached == null || System.currentTimeMillis() - cached.fetchedAtMs > 20 * 60_000) refresh("app")
+            loadRadar(place)
             loadBands(place)
         }
+    }
+
+    private suspend fun loadRadar(place: PlaceEntity) {
+        val spot = runCatching { radarSpot.check(place.latitude, place.longitude) }.getOrNull()
+        if (_state.value.place?.id == place.id) _state.update { it.copy(radar = spot) }
     }
 
     /** Learns how far off past highs were, so the 7-day rows can show a likely range. */
@@ -91,6 +100,7 @@ class HomeViewModel(
         if (refreshJob?.isActive == true) return
         refreshJob = viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
+            launch { loadRadar(place) }
             runCatching { weather.refreshForecast(place, trigger) }
                 .onSuccess { fresh -> _state.update { it.copy(stored = fresh, loading = false) } }
                 .onFailure { e -> _state.update { it.copy(loading = false, error = e.message ?: "Refresh failed") } }
@@ -128,7 +138,7 @@ class HomeViewModel(
                 val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as WeatherApp
                 HomeViewModel(
                     app.container.weather, app.container.places, app.container.updateWidgets, app.container.settings,
-                    app.container.forecastCheck,
+                    app.container.forecastCheck, app.container.radarSpot,
                 )
             }
         }

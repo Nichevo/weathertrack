@@ -33,6 +33,8 @@ data class HistoryState(
     val month: YearMonth = YearMonth.now(),
     val yearOnYear: YearOnYear? = null,
     val decades: List<DecadeStats> = emptyList(),
+    /** The last 12 complete months against their averages, by season. */
+    val seasons: app.weathertrack.core.history.SeasonView? = null,
 )
 
 class HistoryViewModel(
@@ -62,6 +64,7 @@ class HistoryViewModel(
             history.observeRange(place.id).collect { r -> _state.update { it.copy(range = r) } }
         }
         defaultMonth(place)
+        refreshSeasons(place)
         if (!history.syncedRecently(place.id)) sync()
     }
 
@@ -88,14 +91,28 @@ class HistoryViewModel(
                     onProgress = { done, total ->
                         _state.update { it.copy(progress = done to total, waitSeconds = null) }
                         // Show each newly stored chunk straight away (newest years arrive first).
-                        if (done > 0) viewModelScope.launch { if (userPickedMonth) recompute() else defaultMonth(place) }
+                        if (done > 0) viewModelScope.launch {
+                            if (userPickedMonth) recompute() else defaultMonth(place)
+                            refreshSeasons(place)
+                        }
                     },
                     onWait = { left -> _state.update { it.copy(waitSeconds = left.takeIf { s -> s > 0 }) } },
                 )
             }.onFailure { e -> _state.update { it.copy(error = e.message ?: "History download failed") } }
             _state.update { it.copy(syncing = false, progress = null, waitSeconds = null) }
             if (userPickedMonth) recompute() else defaultMonth(place)
+            refreshSeasons(place)
         }
+    }
+
+    private suspend fun refreshSeasons(place: PlaceEntity) {
+        val view = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            val obs = history.all(place.id)
+            val last = obs.lastOrNull()?.date ?: return@withContext null
+            val lastFull = if (last == YearMonth.from(last).atEndOfMonth()) YearMonth.from(last) else YearMonth.from(last).minusMonths(1)
+            app.weathertrack.core.history.Seasons.view(obs, lastFull, southern = place.latitude < 0)
+        }
+        if (_state.value.place?.id == place.id) _state.update { it.copy(seasons = view) }
     }
 
     fun shiftMonth(delta: Long) {
