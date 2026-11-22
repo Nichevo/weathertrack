@@ -7,6 +7,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.Image
+import androidx.glance.ImageProvider
+import androidx.glance.LocalSize
+import androidx.compose.ui.unit.DpSize
+import androidx.glance.layout.size
+import app.weathertrack.R
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
@@ -62,21 +68,41 @@ data class WidgetSnapshot(
 )
 
 private object Palette {
-    val bg = Color(0xFFF8F9FF)
-    val bgDark = Color(0xFF1B1F27)
-    val text = Color(0xFF1A1C20)
-    val muted = Color(0xFF5A5F69)
-    val blue = Color(0xFF1E5AA8)
-    val amber = Color(0xFFF2A900)
-    val amberSoft = Color(0xFFFFE3A3)
+    val text = Color.White
+    val muted = Color(0xD9FFFFFF)
+    val faint = Color(0xB3FFFFFF)
+    val chip = Color(0x29FFFFFF)
+    val rain = Color(0xFFB3E5FC)
+    val amber = Color(0xFFFFC94D)
     val onAmber = Color(0xFF3D2A00)
-    val red = Color(0xFFB3261E)
     val redSoft = Color(0xFFFFDAD6)
-    val iceSoft = Color(0xFFD6E4FF)
+    val red = Color(0xFF8C1D18)
+    val greenSoft = Color(0xFFCDEBD3)
+    val green = Color(0xFF0F3D1E)
+    val teal = Color(0xFFD7EEF2)
+    val onTeal = Color(0xFF0B4F5C)
+}
+
+/** A drawn weather icon for a WMO code, day or night. */
+private fun iconFor(code: Int?, isDay: Boolean): Int = when (code) {
+    null -> R.drawable.ic_w_cloud
+    0, 1 -> if (isDay) R.drawable.ic_w_sun else R.drawable.ic_w_moon
+    2 -> if (isDay) R.drawable.ic_w_partly else R.drawable.ic_w_partly_night
+    3 -> R.drawable.ic_w_cloud
+    45, 48 -> R.drawable.ic_w_fog
+    in 71..77, 85, 86 -> R.drawable.ic_w_snow
+    in 95..99 -> R.drawable.ic_w_storm
+    else -> if (code >= 51) R.drawable.ic_w_rain else R.drawable.ic_w_cloud
 }
 
 class DetailWidget : GlanceAppWidget() {
-    override val sizeMode: SizeMode = SizeMode.Single
+    /** Short (4x2) shows now, badges and the next days; taller adds the 2-hour steps. */
+    override val sizeMode: SizeMode = SizeMode.Responsive(setOf(SHORT, TALL))
+
+    companion object {
+        private val SHORT = DpSize(250.dp, 110.dp)
+        val TALL = DpSize(250.dp, 210.dp)
+    }
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snapshot = load(context)
@@ -117,10 +143,17 @@ private fun text(size: Int, color: Color = Palette.text, bold: Boolean = false) 
 
 @Composable
 private fun WidgetContent(s: WidgetSnapshot?) {
+    val c = s?.forecast?.current
+    val bg = when {
+        c == null -> R.drawable.widget_bg_day
+        WeatherCodes.isWet(c.weatherCode) -> R.drawable.widget_bg_wet
+        c.isDay == false -> R.drawable.widget_bg_night
+        else -> R.drawable.widget_bg_day
+    }
     val root = GlanceModifier.fillMaxSize()
-        .background(ColorProvider(Palette.bg))
-        .cornerRadius(20.dp)
-        .padding(horizontal = 12.dp, vertical = 8.dp)
+        .background(ImageProvider(bg))
+        .cornerRadius(24.dp)
+        .padding(horizontal = 14.dp, vertical = 10.dp)
         .clickable(actionStartActivity<MainActivity>())
     if (s == null) {
         Box(root, contentAlignment = Alignment.Center) {
@@ -128,34 +161,46 @@ private fun WidgetContent(s: WidgetSnapshot?) {
         }
         return
     }
+    val tall = LocalSize.current.height >= DetailWidget.TALL.height
     Column(root) {
-        Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            NowBlock(s)
-            Spacer(GlanceModifier.width(8.dp))
-            TwoHourSteps(s, GlanceModifier.defaultWeight())
-        }
-        Spacer(GlanceModifier.height(4.dp))
+        NowRow(s)
+        Spacer(GlanceModifier.height(6.dp))
         Badges(s)
-        Spacer(GlanceModifier.height(4.dp))
-        Row(GlanceModifier.fillMaxWidth()) {
+        if (tall) {
+            Spacer(GlanceModifier.height(6.dp))
+            TwoHourSteps(s, GlanceModifier.fillMaxWidth())
+        }
+        Spacer(GlanceModifier.defaultWeight())
+        Row(GlanceModifier.fillMaxWidth().background(ColorProvider(Palette.chip)).cornerRadius(14.dp).padding(vertical = 4.dp)) {
             nextDays(s).forEach { d -> DayCell(d, GlanceModifier.defaultWeight()) }
         }
     }
 }
 
 @Composable
-private fun NowBlock(s: WidgetSnapshot) {
+private fun NowRow(s: WidgetSnapshot) {
     val c = s.forecast.current
-    val uvNow = s.forecast.hourly.firstOrNull { it.time + 3600 > s.nowEpoch }?.uvIndex
-    Column(GlanceModifier.width(84.dp)) {
-        Text(s.placeName, style = text(11, Palette.muted), maxLines = 1)
-        Text(Format.temp(c?.temperature), style = text(30, bold = true))
-        Text(WeatherCodes.describe(c?.weatherCode), style = text(11), maxLines = 1)
-        Text("UV ${Format.uv(uvNow)} · ${Format.time(s.fetchedAtMs / 1000, s.zone)}", style = text(10, Palette.muted), maxLines = 1)
+    val today = s.forecast.daily.firstOrNull { it.date == Instant.ofEpochSecond(s.nowEpoch).atZone(s.zone).toLocalDate().toString() }
+    Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Image(ImageProvider(iconFor(c?.weatherCode, c?.isDay != false)), contentDescription = WeatherCodes.describe(c?.weatherCode),
+            modifier = GlanceModifier.size(40.dp))
+        Spacer(GlanceModifier.width(8.dp))
+        Text(Format.temp(c?.temperature), style = text(32, bold = true))
+        Spacer(GlanceModifier.width(8.dp))
+        Column(GlanceModifier.defaultWeight()) {
+            Text(WeatherCodes.describe(c?.weatherCode), style = text(13, bold = true), maxLines = 1)
+            Text("Feels ${Format.temp(c?.apparentTemperature)} · ${Format.temp(today?.temperatureMax)}/${Format.temp(today?.temperatureMin)}",
+                style = text(11, Palette.muted), maxLines = 1)
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(s.placeName, style = text(12, bold = true), maxLines = 1)
+            val uvNow = s.forecast.hourly.firstOrNull { it.time + 3600 > s.nowEpoch }?.uvIndex
+            Text("UV ${Format.uv(uvNow)} · ${Format.time(s.fetchedAtMs / 1000, s.zone)}", style = text(10, Palette.faint), maxLines = 1)
+        }
     }
 }
 
-/** Today in 2-hour steps: the next six even hours. */
+/** The next six even hours. */
 @Composable
 private fun TwoHourSteps(s: WidgetSnapshot, modifier: GlanceModifier) {
     val steps = s.forecast.hourly
@@ -171,10 +216,10 @@ private fun TwoHourSteps(s: WidgetSnapshot, modifier: GlanceModifier) {
 private fun HourCell(h: HourPoint, zone: ZoneId, modifier: GlanceModifier) {
     val wet = (h.precipitationProbability ?: 0.0) >= 40
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(Format.hour(h.time, zone).replace(" ", "").lowercase(), style = text(10, Palette.muted))
-        Text(Format.temp(h.temperature), style = text(14, bold = true))
-        Text(Format.pct(h.precipitationProbability), style = text(10, if (wet) Palette.blue else Palette.muted, bold = wet))
-        Text("UV${Format.uv(h.uvIndex)}", style = text(9, Palette.muted))
+        Text(Format.hour(h.time, zone).replace(" ", "").lowercase(), style = text(10, Palette.faint))
+        Image(ImageProvider(iconFor(h.weatherCode, h.isDay != false)), contentDescription = null, modifier = GlanceModifier.size(20.dp))
+        Text(Format.temp(h.temperature), style = text(13, bold = true))
+        Text(Format.pct(h.precipitationProbability), style = text(10, if (wet) Palette.rain else Palette.faint, bold = wet))
     }
 }
 
@@ -183,8 +228,8 @@ private fun Badges(s: WidgetSnapshot) {
     Row(GlanceModifier.fillMaxWidth()) {
         val (jacketText, jacketBg, jacketFg) = when (s.jacket) {
             Verdict.YES -> Triple("Jacket", Palette.amber, Palette.onAmber)
-            Verdict.MAYBE -> Triple("Maybe jacket", Palette.amberSoft, Palette.onAmber)
-            Verdict.NO -> Triple("No jacket", Palette.iceSoft, Palette.blue)
+            Verdict.MAYBE -> Triple("Maybe jacket", Color(0xFFFFE3A3), Palette.onAmber)
+            Verdict.NO -> Triple("No jacket", Palette.chip, Palette.text)
         }
         Badge(jacketText, jacketBg, jacketFg)
         s.walk?.let { w ->
@@ -195,21 +240,21 @@ private fun Badges(s: WidgetSnapshot) {
                 WalkRating.POOR -> "poor"
             }
             when (w.rating) {
-                WalkRating.GOOD -> Badge(label, Color(0xFFCDEBD3), Color(0xFF0F3D1E))
-                WalkRating.FAIR -> Badge(label, Palette.amberSoft, Palette.onAmber)
+                WalkRating.GOOD -> Badge(label, Palette.greenSoft, Palette.green)
+                WalkRating.FAIR -> Badge(label, Palette.amber, Palette.onAmber)
                 WalkRating.POOR -> Badge(label, Palette.redSoft, Palette.red)
             }
         }
         s.tide?.let {
             Spacer(GlanceModifier.width(4.dp))
-            Badge(it, Color(0xFFD7EEF2), Color(0xFF0B4F5C))
+            Badge(it, Palette.teal, Palette.onTeal)
         }
         s.triggers.forEach { t ->
             Spacer(GlanceModifier.width(4.dp))
             when (t.kind) {
-                TriggerKind.RAIN_SOON -> Badge(t.text, Palette.blue, Color.White)
+                TriggerKind.RAIN_SOON -> Badge(t.text, Palette.rain, Color(0xFF01579B))
                 TriggerKind.TOO_HOT -> Badge("Hot ${Format.temp(t.value)}", Palette.redSoft, Palette.red)
-                TriggerKind.TOO_COLD -> Badge("Cold ${Format.temp(t.value)}", Palette.iceSoft, Palette.blue)
+                TriggerKind.TOO_COLD -> Badge("Cold ${Format.temp(t.value)}", Palette.chip, Palette.text)
             }
         }
     }
@@ -226,16 +271,20 @@ private fun Badge(label: String, bg: Color, fg: Color) {
 
 private fun nextDays(s: WidgetSnapshot): List<DayPoint> {
     val today = Instant.ofEpochSecond(s.nowEpoch).atZone(s.zone).toLocalDate().toString()
-    return s.forecast.daily.filter { it.date > today }.take(3)
+    return s.forecast.daily.filter { it.date > today }.take(4)
 }
 
 @Composable
 private fun DayCell(d: DayPoint, modifier: GlanceModifier) {
+    val wet = (d.precipitationProbabilityMax ?: 0.0) >= 40
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            "${Format.day(d.date).substringBefore(' ')} ${Format.temp(d.temperatureMax)}/${Format.temp(d.temperatureMin)}",
-            style = text(11, bold = true), maxLines = 1,
-        )
-        Text("${Format.pct(d.precipitationProbabilityMax)} · UV${Format.uv(d.uvIndexMax)}", style = text(10, Palette.muted), maxLines = 1)
+        Text(Format.day(d.date).substringBefore(' '), style = text(11, Palette.muted, bold = true), maxLines = 1)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(ImageProvider(iconFor(d.weatherCode, true)), contentDescription = WeatherCodes.describe(d.weatherCode),
+                modifier = GlanceModifier.size(20.dp))
+            Spacer(GlanceModifier.width(3.dp))
+            Text("${Format.temp(d.temperatureMax)}/${Format.temp(d.temperatureMin)}", style = text(11, bold = true), maxLines = 1)
+        }
+        Text(Format.pct(d.precipitationProbabilityMax), style = text(10, if (wet) Palette.rain else Palette.faint, bold = wet), maxLines = 1)
     }
 }
