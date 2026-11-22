@@ -91,6 +91,23 @@ object ForecastCheck {
         }
     }
 
+    /** Daily forecast low for each (day, lead), from Previous Runs hours. */
+    fun dailyRunLows(runs: List<RunHour>, zone: ZoneId): Map<Pair<LocalDate, Int>, Double> =
+        runs.groupBy { day(it.time, zone) to it.lead }.mapNotNull { (key, hours) ->
+            val temps = hours.mapNotNull { it.temperature }
+            if (temps.size < 20) null else key to temps.min()
+        }.toMap()
+
+    /** How far off the daily lows were, by lead, for days on or after [from]. Error = actual − forecast. */
+    fun lowErrors(runs: List<RunHour>, obs: List<ObsHour>, zone: ZoneId, from: LocalDate, leads: List<Int> = LEADS): List<LeadError> {
+        val actual = dailyActuals(obs, zone)
+        val fc = dailyRunLows(runs, zone)
+        return leads.mapNotNull { lead ->
+            val errs = actual.filterKeys { !it.isBefore(from) }.mapNotNull { (d, a) -> fc[d to lead]?.let { a.low - it } }
+            if (errs.isEmpty()) null else LeadError(lead, errs.size, errs.map { abs(it) }.average(), errs.average(), quantile(errs, 0.1), quantile(errs, 0.9))
+        }
+    }
+
     /** How far off daily rain totals were, by lead, in mm. Error = actual − forecast. */
     fun rainErrors(runs: List<RunHour>, obs: List<ObsHour>, zone: ZoneId, from: LocalDate, leads: List<Int> = LEADS): List<LeadError> {
         val actual = dailyActuals(obs, zone)

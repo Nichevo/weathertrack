@@ -186,3 +186,18 @@ interface UserReportDao {
     @Query("SELECT COUNT(*) FROM user_report")
     fun count(): Flow<Int>
 }
+
+@Dao
+interface SourceHourDao {
+    @Insert
+    suspend fun insertAll(rows: List<SourceHourEntity>)
+
+    @Query("SELECT * FROM source_hour WHERE place_id = :placeId AND time >= :from AND time <= :to ORDER BY time")
+    suspend fun between(placeId: Long, from: Long, to: Long): List<SourceHourEntity>
+
+    @Query("SELECT MAX(issued_at) FROM source_hour WHERE place_id = :placeId AND source = :source")
+    suspend fun lastIssued(placeId: Long, source: String): Long?
+
+    @Query("SELECT COUNT(*) FROM source_hour")
+    fun count(): Flow<Int>
+}

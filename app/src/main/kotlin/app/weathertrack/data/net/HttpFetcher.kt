@@ -16,7 +16,7 @@ class HttpFetcher(
 ) {
     suspend fun get(url: String): HttpResult = withContext(Dispatchers.IO) {
         val started = System.currentTimeMillis()
-        val request = Request.Builder().url(url).header("User-Agent", "WeatherTrack-Android").build()
+        val request = Request.Builder().url(url).header("User-Agent", app.weathertrack.map.TileStore.USER_AGENT).build()
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             val done = System.currentTimeMillis()

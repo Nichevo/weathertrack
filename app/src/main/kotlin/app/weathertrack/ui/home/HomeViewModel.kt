@@ -50,6 +50,11 @@ data class HomeState(
     val spread: List<app.weathertrack.core.accuracy.DaySpread> = emptyList(),
     val air: List<app.weathertrack.core.air.AirHour> = emptyList(),
     val warnings: List<app.weathertrack.core.warnings.Warning> = emptyList(),
+    /** Next days with likely ranges for the high and the low, from past errors here. */
+    val highFan: List<app.weathertrack.core.accuracy.FanPoint> = emptyList(),
+    val lowFan: List<app.weathertrack.core.accuracy.FanPoint> = emptyList(),
+    /** Every forecast source, their records here and the accuracy-weighted blend. */
+    val sources: app.weathertrack.data.SourceView? = null,
 )
 
 class HomeViewModel(
@@ -60,6 +65,7 @@ class HomeViewModel(
     private val forecastCheck: app.weathertrack.data.ForecastCheckRepository,
     private val radarSpot: app.weathertrack.map.RadarSpotChecker,
     private val extras: app.weathertrack.data.ExtrasRepository,
+    private val sources: app.weathertrack.data.SourceRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state
@@ -90,6 +96,8 @@ class HomeViewModel(
                     place = place, stored = cached, error = null, radar = if (same) it.radar else null,
                     tides = if (same) it.tides else null, spread = if (same) it.spread else emptyList(),
                     air = if (same) it.air else emptyList(), warnings = if (same) it.warnings else emptyList(),
+                    highFan = if (same) it.highFan else emptyList(), lowFan = if (same) it.lowFan else emptyList(),
+                    sources = if (same) it.sources else null,
                     trust = if (same) it.trust else null, highBands = if (same) it.highBands else emptyMap(),
                 )
             }
@@ -115,6 +123,38 @@ class HomeViewModel(
         }.getOrElse { runCatching { forecastCheck.highBands(place) }.getOrDefault(emptyMap()) }
         if (_state.value.place?.id == place.id) _state.update { it.copy(highBands = bands) }
         loadTrust(place)
+        loadFans(place)
+        loadSources(place)
+    }
+
+    /** Likely ranges for the coming highs and lows, from how far off past forecasts were here. */
+    private suspend fun loadFans(place: PlaceEntity) {
+        val FC = app.weathertrack.core.accuracy.ForecastCheck
+        val zone = Format.zone(place.timezone)
+        val today = java.time.LocalDate.now(zone)
+        val result = runCatching {
+            val fromEpoch = today.minusDays(3 * 365L).atStartOfDay(zone).toEpochSecond()
+            val r = forecastCheck.runs(place.id, fromEpoch)
+            val o = forecastCheck.observed(place.id, fromEpoch)
+            val daily = (weather.cachedForecast(place)?.forecast?.daily).orEmpty()
+                .mapNotNull { d -> runCatching { java.time.LocalDate.parse(d.date) }.getOrNull()?.let { it to d } }
+            val hi = FC.seasonalHighErrors(r, o, zone, today)
+            val lo = FC.lowErrors(r, o, zone, today.minusDays(90))
+            FC.fan(daily.map { it.first to it.second.temperatureMax }, today, hi) to
+                FC.fan(daily.map { it.first to it.second.temperatureMin }, today, lo)
+        }.getOrNull() ?: return
+        if (_state.value.place?.id == place.id) _state.update { it.copy(highFan = result.first, lowFan = result.second) }
+    }
+
+    /** Pulls every forecast source (when due), then scores them and blends. */
+    private suspend fun loadSources(place: PlaceEntity) {
+        val now = System.currentTimeMillis() / 1000
+        runCatching { sources.refresh(place, weather.cachedForecast(place)?.forecast, "app") }
+        val view = runCatching {
+            val from = now - 60 * 86400L
+            sources.view(place.id, forecastCheck.observed(place.id, from), forecastCheck.reports(place.id, from))
+        }.getOrNull()
+        if (_state.value.place?.id == place.id) _state.update { it.copy(sources = view) }
     }
 
     private suspend fun loadExtras(place: PlaceEntity) {
@@ -199,7 +239,7 @@ class HomeViewModel(
                 val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as WeatherApp
                 HomeViewModel(
                     app.container.weather, app.container.places, app.container.updateWidgets, app.container.settings,
-                    app.container.forecastCheck, app.container.radarSpot, app.container.extras,
+                    app.container.forecastCheck, app.container.radarSpot, app.container.extras, app.container.sources,
                 )
             }
         }

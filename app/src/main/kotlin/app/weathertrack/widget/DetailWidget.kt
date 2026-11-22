@@ -97,11 +97,14 @@ private fun iconFor(code: Int?, isDay: Boolean): Int = when (code) {
 
 class DetailWidget : GlanceAppWidget() {
     /** Short (4x2) shows now, badges and the next days; taller adds the 2-hour steps. */
-    override val sizeMode: SizeMode = SizeMode.Responsive(setOf(SHORT, TALL))
+    override val sizeMode: SizeMode = SizeMode.Responsive(setOf(SHORT, TALL, WIDE, WIDE_TALL))
 
     companion object {
         private val SHORT = DpSize(250.dp, 110.dp)
         val TALL = DpSize(250.dp, 210.dp)
+        /** Wide, as on an unfolded phone: room for the hours beside everything else. */
+        val WIDE = DpSize(400.dp, 110.dp)
+        private val WIDE_TALL = DpSize(400.dp, 210.dp)
     }
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -161,14 +164,29 @@ private fun WidgetContent(s: WidgetSnapshot?) {
         }
         return
     }
-    val tall = LocalSize.current.height >= DetailWidget.TALL.height
+    val size = LocalSize.current
+    val tall = size.height >= DetailWidget.TALL.height
+    val wide = size.width >= DetailWidget.WIDE.width
     Column(root) {
-        NowRow(s)
-        Spacer(GlanceModifier.height(6.dp))
-        Badges(s)
-        if (tall) {
+        if (wide && !tall) {
+            // Wide but short (an unfolded phone): now on the left, the next hours on the right.
+            Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(GlanceModifier.defaultWeight()) {
+                    NowRow(s)
+                    Spacer(GlanceModifier.height(4.dp))
+                    Badges(s)
+                }
+                Spacer(GlanceModifier.width(8.dp))
+                TwoHourSteps(s, GlanceModifier.defaultWeight(), compact = true)
+            }
+        } else {
+            NowRow(s)
             Spacer(GlanceModifier.height(6.dp))
-            TwoHourSteps(s, GlanceModifier.fillMaxWidth())
+            Badges(s)
+            if (tall) {
+                Spacer(GlanceModifier.height(6.dp))
+                TwoHourSteps(s, GlanceModifier.fillMaxWidth())
+            }
         }
         Spacer(GlanceModifier.defaultWeight())
         Row(GlanceModifier.fillMaxWidth().background(ColorProvider(Palette.chip)).cornerRadius(14.dp).padding(vertical = 4.dp)) {
@@ -202,22 +220,22 @@ private fun NowRow(s: WidgetSnapshot) {
 
 /** The next six even hours. */
 @Composable
-private fun TwoHourSteps(s: WidgetSnapshot, modifier: GlanceModifier) {
+private fun TwoHourSteps(s: WidgetSnapshot, modifier: GlanceModifier, compact: Boolean = false) {
     val steps = s.forecast.hourly
         .filter { it.time + 3600 > s.nowEpoch }
         .filter { Instant.ofEpochSecond(it.time).atZone(s.zone).hour % 2 == 0 }
         .take(6)
     Row(modifier) {
-        steps.forEach { h -> HourCell(h, s.zone, GlanceModifier.defaultWeight()) }
+        steps.forEach { h -> HourCell(h, s.zone, GlanceModifier.defaultWeight(), compact) }
     }
 }
 
 @Composable
-private fun HourCell(h: HourPoint, zone: ZoneId, modifier: GlanceModifier) {
+private fun HourCell(h: HourPoint, zone: ZoneId, modifier: GlanceModifier, compact: Boolean = false) {
     val wet = (h.precipitationProbability ?: 0.0) >= 40
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(Format.hour(h.time, zone).replace(" ", "").lowercase(), style = text(10, Palette.faint))
-        Image(ImageProvider(iconFor(h.weatherCode, h.isDay != false)), contentDescription = null, modifier = GlanceModifier.size(20.dp))
+        Image(ImageProvider(iconFor(h.weatherCode, h.isDay != false)), contentDescription = null, modifier = GlanceModifier.size(if (compact) 18.dp else 20.dp))
         Text(Format.temp(h.temperature), style = text(13, bold = true))
         Text(Format.pct(h.precipitationProbability), style = text(10, if (wet) Palette.rain else Palette.faint, bold = wet))
     }

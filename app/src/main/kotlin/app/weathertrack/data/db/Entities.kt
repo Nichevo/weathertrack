@@ -216,3 +216,23 @@ data class UserReportEntity(
     /** Time of the radar frame used, epoch seconds. */
     @androidx.room.ColumnInfo(name = "radar_time") val radarTime: Long?,
 )
+
+/** One hour from one forecast source (a weather model, an ensemble or another provider), as issued. */
+@Entity(
+    tableName = "source_hour",
+    indices = [Index("place_id", "time")],
+)
+data class SourceHourEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @androidx.room.ColumnInfo(name = "place_id") val placeId: Long,
+    /** Source key, e.g. "gfs_seamless", "ens_ecmwf_ifs025", "metno", "main". */
+    val source: String,
+    /** When the app fetched it, epoch seconds. */
+    @androidx.room.ColumnInfo(name = "issued_at") val issuedAt: Long,
+    /** End of the hour, epoch seconds UTC. */
+    val time: Long,
+    val temperature: Double?,
+    val precipitation: Double?,
+    /** 0..100. For single-run models, derived from the amount. */
+    @androidx.room.ColumnInfo(name = "rain_chance") val rainChance: Double?,
+)

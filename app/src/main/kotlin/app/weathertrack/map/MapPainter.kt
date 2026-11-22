@@ -49,11 +49,20 @@ class MapPainter(private val tiles: TileStore) {
     private val tilePaint = Paint(Paint.FILTER_BITMAP_FLAG)
     /** The base map, softened (less colour, a little lighter) so rain stands out on top. */
     private val basePaint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
-        val m = ColorMatrix().apply { setSaturation(0.35f) }
-        m.postConcat(ColorMatrix(floatArrayOf(0.85f, 0f, 0f, 0f, 30f, 0f, 0.85f, 0f, 0f, 30f, 0f, 0f, 0.85f, 0f, 30f, 0f, 0f, 0f, 1f, 0f)))
+        // Faded and nearly grey, so rain stands out on top.
+        val m = ColorMatrix().apply { setSaturation(0.15f) }
+        m.postConcat(ColorMatrix(floatArrayOf(0.62f, 0f, 0f, 0f, 92f, 0f, 0.62f, 0f, 0f, 92f, 0f, 0f, 0.62f, 0f, 96f, 0f, 0f, 0f, 1f, 0f)))
         colorFilter = ColorMatrixColorFilter(m)
     }
-    private val radarPaint = Paint(Paint.FILTER_BITMAP_FLAG).apply { alpha = 235 }
+    /** Radar tiles darkened and made more solid: RainViewer's free blue scheme is pale on a light map. */
+    private val radarPaint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
+        colorFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+            0.45f, 0f, 0f, 0f, 0f,
+            0f, 0.55f, 0f, 0f, 0f,
+            0f, 0f, 0.85f, 0f, 0f,
+            0f, 0f, 0f, 1.6f, 0f,
+        )))
+    }
     private val bg = Paint().apply { color = Color.rgb(0xDC, 0xE6, 0xF1) }
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0x2F, 0x62, 0x95) }
     private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(64, 0x2F, 0x62, 0x95) }
@@ -176,9 +185,9 @@ class MapPainter(private val tiles: TileStore) {
     companion object {
         /** Legend colours (light, moderate, heavy, downpour), matching the design. */
         val BAND_COLORS = mapOf(
-            RainBand.LIGHT to Color.argb(200, 0x9F, 0xCB, 0xF2),
-            RainBand.MODERATE to Color.argb(210, 0x3A, 0x7F, 0xC8),
-            RainBand.HEAVY to Color.argb(220, 0x1B, 0x3F, 0x78),
+            RainBand.LIGHT to Color.argb(215, 0x4F, 0x8F, 0xD0),
+            RainBand.MODERATE to Color.argb(230, 0x1F, 0x5A, 0x9C),
+            RainBand.HEAVY to Color.argb(240, 0x0C, 0x2A, 0x5A),
             RainBand.DOWNPOUR to Color.argb(230, 0xE8, 0x96, 0x2E),
         )
 

@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Star
@@ -41,8 +43,8 @@ private val tabs = listOf(
     Tab("home", "Today", Icons.Filled.Star),
     Tab("map", "Rain map", RadarIcon),
     Tab("history", "History", Icons.Filled.DateRange),
-    Tab("climate", "Home", Icons.Filled.Home),
-    Tab("places", "Places", Icons.Filled.Place),
+    Tab("sources", "Sources", Icons.Filled.List),
+    Tab("settings", "Settings", Icons.Filled.Settings),
 )
 
 class MainActivity : ComponentActivity() {
@@ -78,13 +80,17 @@ class MainActivity : ComponentActivity() {
                 ) { padding ->
                     NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding)) {
                         composable("home") { HomeScreen(onOpenSettings = { nav.navigate("settings") }) }
-                        composable("settings") { SettingsScreen(onBack = { nav.popBackStack() }) }
+                        composable("settings") { SettingsScreen(onOpenPlaces = { nav.navigate("places") }) }
+                        composable("sources") { app.weathertrack.ui.sources.SourcesScreen() }
                         composable("map") { RainMapScreen() }
                         composable("history") {
-                            HistoryScreen(onOpenData = { nav.navigate("data") }, onOpenCheck = { nav.navigate("check") })
+                            HistoryScreen(
+                                onOpenData = { nav.navigate("data") }, onOpenCheck = { nav.navigate("check") },
+                                onOpenHome = { nav.navigate("climate") },
+                            )
                         }
-                        composable("climate") { ClimateScreen() }
-                        composable("places") { PlacesScreen() }
+                        composable("climate") { ClimateScreen(onBack = { nav.popBackStack() }) }
+                        composable("places") { PlacesScreen(onBack = { nav.popBackStack() }) }
                         composable("data") { DataScreen(onBack = { nav.popBackStack() }) }
                         composable("check") { ForecastCheckScreen(onBack = { nav.popBackStack() }) }
                     }

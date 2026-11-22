@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
@@ -118,7 +119,7 @@ class PlacesViewModel(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlacesScreen(vm: PlacesViewModel = viewModel(factory = PlacesViewModel.Factory)) {
+fun PlacesScreen(onBack: (() -> Unit)? = null, vm: PlacesViewModel = viewModel(factory = PlacesViewModel.Factory)) {
     val places by vm.places.collectAsStateWithLifecycle()
     val selected by vm.selectedId.collectAsStateWithLifecycle()
     val results by vm.results.collectAsStateWithLifecycle()
@@ -130,7 +131,7 @@ fun PlacesScreen(vm: PlacesViewModel = viewModel(factory = PlacesViewModel.Facto
     }
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text("Places") })
+        TopAppBar(title = { Text("Places") }, navigationIcon = { onBack?.let { b -> IconButton(onClick = b) { Icon(Icons.Filled.ArrowBack, "Back") } } })
         LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 OutlinedTextField(

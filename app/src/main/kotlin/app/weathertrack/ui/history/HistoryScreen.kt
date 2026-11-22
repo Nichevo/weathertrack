@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -56,6 +57,7 @@ private val longDate = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)
 fun HistoryScreen(
     onOpenData: () -> Unit = {},
     onOpenCheck: () -> Unit = {},
+    onOpenHome: () -> Unit = {},
     vm: HistoryViewModel = viewModel(factory = HistoryViewModel.Factory),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -65,6 +67,7 @@ fun HistoryScreen(
         TopAppBar(
             title = { Text("History · ${s.place?.name ?: ""}") },
             actions = {
+                IconButton(onClick = onOpenHome) { Icon(Icons.Filled.Home, contentDescription = "Home heating and cooling") }
                 IconButton(onClick = onOpenCheck) { Icon(Icons.Filled.CheckCircle, contentDescription = "Forecast check") }
                 IconButton(onClick = onOpenData) { Icon(Icons.Filled.List, contentDescription = "Your data and exports") }
                 IconButton(onClick = vm::sync, enabled = !s.syncing) {

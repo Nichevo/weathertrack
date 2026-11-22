@@ -52,7 +52,7 @@ private val timeFmt = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: (() -> Unit)? = null, onOpenPlaces: () -> Unit = {}) {
     val context = LocalContext.current
     val container = (context.applicationContext as WeatherApp).container
     val repo = container.settings
@@ -85,12 +85,23 @@ fun SettingsScreen(onBack: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("Settings") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back") } },
+            navigationIcon = { onBack?.let { b -> IconButton(onClick = b) { Icon(Icons.Filled.ArrowBack, "Back") } } },
         )
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            Section("Places")
+            androidx.compose.material3.OutlinedButton(onClick = onOpenPlaces, modifier = Modifier.fillMaxWidth()) { Text("Saved places and your location") }
+            val savedPlaces by container.places.places.collectAsState(initial = emptyList())
+            Note("Second clock on Today: shows the local time at one of your saved places.")
+            val clockOptions = listOf<Pair<Long, String>>(-1L to "Off") + savedPlaces.map { it.id to it.name }
+            val clockIdx = clockOptions.indexOfFirst { it.first == s.clockPlaceId }.coerceAtLeast(0)
+            Stepper("Second clock", clockOptions[clockIdx].second,
+                { repo.update { it.copy(clockPlaceId = clockOptions[(clockIdx - 1 + clockOptions.size) % clockOptions.size].first) } },
+                { repo.update { it.copy(clockPlaceId = clockOptions[(clockIdx + 1) % clockOptions.size].first) } })
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
             Section("Jacket call")
             Note("The call is YES at these levels and MAYBE a little below them.")
             Stepper("Rain chance", "${s.jacketRainChance}%", { repo.update { it.copy(jacketRainChance = (it.jacketRainChance - 5).coerceAtLeast(10)) } },

@@ -87,8 +87,11 @@ private val stepKey = ActionParameters.Key<Int>("step")
 
 class SelectStepAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        RainWidgetFrames.setStep(context, parameters[stepKey] ?: 0)
-        RainMapWidget().update(context, glanceId)
+        val step = (parameters[stepKey] ?: 0).coerceIn(0, RainMapWidget.STEPS - 1)
+        // Ignore repeat taps on the step already showing, so quick taps don't queue up redraws.
+        if (step == RainWidgetFrames.step(context)) return
+        RainWidgetFrames.setStep(context, step)
+        runCatching { RainMapWidget().update(context, glanceId) }.onFailure { Log.w("RainMapWidget", "Step update failed", it) }
     }
 }
 
@@ -207,8 +210,11 @@ private fun Content(meta: RainWidgetFrames.Meta?, step: Int, bitmap: Bitmap?, er
 /** Draws and stores the widget's frames, and remembers which one is showing. */
 object RainWidgetFrames {
     // Kept small: the picture travels to the home screen inside one update, which must stay well under 1 MB.
-    private const val WIDTH = 560
-    private const val HEIGHT = 400
+    private const val WIDTH = 480
+    private const val HEIGHT = 344
+    /** Map area in world pixels at [ZOOM] (unchanged from before), drawn scaled to the frame. */
+    private const val VIEW_W = 280.0
+    private const val VIEW_H = 200.0
     private const val ZOOM = 10
     private const val MIN_INTERVAL_MS = 10 * 60_000L
     private val lock = Mutex()
@@ -265,7 +271,7 @@ object RainWidgetFrames {
             if (frames == null && grid == null) error("No network for radar or forecast")
             val latest = frames?.past?.lastOrNull()
             val now = System.currentTimeMillis() / 1000
-            val v = Viewport.at(place.latitude, place.longitude, ZOOM, WIDTH / 2.0, HEIGHT / 2.0)
+            val v = Viewport.at(place.latitude, place.longitude, ZOOM, VIEW_W, VIEW_H)
             val painter = MapPainter(container.tiles)
             val marker = place.latitude to place.longitude
             val steps = mutableListOf<Step>()
@@ -279,7 +285,7 @@ object RainWidgetFrames {
                 runCatching { container.tiles.preload(painter.urlsFor(v, layers)) }
                 // RGB_565 halves the size of what goes to the home screen; the map has no transparency.
                 val bmp = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.RGB_565)
-                painter.draw(Canvas(bmp), v, 2f, layers)
+                painter.draw(Canvas(bmp), v, (WIDTH / VIEW_W).toFloat(), layers)
                 File(dir(context), "frame_$i.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
                 bmp.recycle()
                 val outlook = grid?.let { RainOutlooks.at(it, place.latitude, place.longitude, at) }
