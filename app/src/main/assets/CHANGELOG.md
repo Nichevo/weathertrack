@@ -2,7 +2,7 @@
 
 Each release adds a section at the top. The app shows the one matching the installed version.
 
-## 1.4 · History tabs and explorer
+## 1.5 · History tabs and explorer
 - History now has tabs across the top: Past weather, Forecast check, Home energy and Data. They replace the small icons, and tapping History in the bottom bar always brings you back to Past weather.
 - Past weather opens with "this month so far": highs against normal, rain as a share of normal, and rain days.
 - New explorer: pick High, Low, Rain, Sun or Gusts, a month, season or year, and compare with the last 2 years, the usual 1991–2020 range and decades. For highs, lows and rain the month-by-decade chart keeps its low-to-high bars with rain. Rain and sun build up through the period on the chart; highs, lows and gusts show day by day.
@@ -11,6 +11,15 @@ Each release adds a section at the top. The app shows the one matching the insta
 - Forecast check: chips at the top jump straight to each section.
 - Every saved place now builds its record in the background, not just the one you have open: Forecast check actuals and earlier runs, home climate and the archive history all sync for each place about twice a day.
 - Places: a new "All sources" switch saves every forecast source hourly for that place too, so Sources can score them there. It's off by default because it costs about 13 downloads an hour per place.
+
+## 1.4 · Clearer Sources page
+- One Rain / Temp / Wind / Cloud switch at the top of Sources now drives every section.
+- How far ahead is shown as clock times: each lead window says the hours it covers right now (e.g. "1–7 pm · 6–12 h ahead"), and a strip shows which window each upcoming hour's blend uses.
+- New "Accuracy by how far ahead" heatmap: every source against every lead window, coloured poor to good, with thin evidence faded.
+- "Detail by window": share of the blend as bars, the score, hours checked and your reports for the window you pick, plus every window's weights side by side.
+- A chart of each source's accuracy from 1–2 days out to the last 3 hours; tap a source to highlight it.
+- "When forecasts settle" is now on Sources too, as bars on a 2-days-to-now axis with a coloured table.
+- All score tables, including Past forecasts, use one smooth red-to-green colour scale.
 
 ## 1.3 · Pollen and folded widget
 - Our own hay fever estimate where there's no pollen forecast (all of NZ): a pollen season calendar times the weather. Warm, sunny, dry and breezy days raise it, rain clears it, and a sunny day after rain can bring a burst. Today shows Low, Moderate or High with the main reasons and the worst time of day. It's an estimate, not a measured count.
