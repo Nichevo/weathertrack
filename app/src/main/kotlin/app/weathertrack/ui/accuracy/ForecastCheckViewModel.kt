@@ -63,6 +63,10 @@ data class ForecastCheckState(
     val sun: List<app.weathertrack.core.accuracy.SunScore> = emptyList(),
     /** Daily high errors grouped by the cloud forecast for the day. */
     val highByCloud: Map<app.weathertrack.core.accuracy.CloudRegime, List<LeadError>> = emptyMap(),
+    /** Jacket calls by hours ahead (1, 3, 6, 12). */
+    val jacketByLead: Map<Int, JacketScore> = emptyMap(),
+    /** How far ahead each source's forecasts got it right and stayed right, over the last week. */
+    val settled: List<app.weathertrack.core.sources.Settled> = emptyList(),
 )
 
 class ForecastCheckViewModel(
@@ -70,6 +74,7 @@ class ForecastCheckViewModel(
     private val places: PlaceRepository,
     private val settings: SettingsRepository,
     private val weather: app.weathertrack.data.WeatherRepository,
+    private val sources: app.weathertrack.data.SourceRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ForecastCheckState())
     val state: StateFlow<ForecastCheckState> = _state
@@ -158,8 +163,13 @@ class ForecastCheckViewModel(
                 windCloud = app.weathertrack.core.accuracy.WindCloud.errors(r, o, fromEpoch),
                 sun = app.weathertrack.core.accuracy.WindCloud.sunny(r, o, fromEpoch),
                 highByCloud = app.weathertrack.core.accuracy.WindCloud.highErrorsByRegime(r, o, zone, from),
+                jacketByLead = ForecastCheck.jacketByLead(iss, o, zone, from, st.jacketThresholds),
             )
         }
+        val settled = runCatching {
+            val weekObs = o.filter { it.time >= System.currentTimeMillis() / 1000 - 8 * 86400L }
+            withContext(Dispatchers.Default) { sources.settled(place.id, weekObs) }
+        }.getOrDefault(emptyList())
         _state.update {
             it.copy(
                 jacket = result.jacket, rainCalls = result.rainCalls, leads = result.leads, bands = result.bands,
@@ -167,6 +177,7 @@ class ForecastCheckViewModel(
                 firstActual = result.firstActual, tempFan = result.tempFan, rainFan = result.rainFan, reports = result.reports,
                 coverage = result.coverage, seasonal = result.seasonal,
                 windCloud = result.windCloud, sun = result.sun, highByCloud = result.highByCloud,
+                jacketByLead = result.jacketByLead, settled = settled,
             )
         }
     }
@@ -175,7 +186,7 @@ class ForecastCheckViewModel(
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as WeatherApp
-                ForecastCheckViewModel(app.container.forecastCheck, app.container.places, app.container.settings, app.container.weather)
+                ForecastCheckViewModel(app.container.forecastCheck, app.container.places, app.container.settings, app.container.weather, app.container.sources)
             }
         }
     }

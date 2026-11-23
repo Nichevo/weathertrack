@@ -165,6 +165,38 @@ fun ForecastCheckScreen(
                 }
             }
 
+            Section("Jacket call by how far ahead") {
+                Text(
+                    "Each day's 3-hour windows from 6 am to 9 pm, called from the forecast stored that many hours before " +
+                        "and checked against what happened. A call that's right 3 hours out is more use than one right only an hour out.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (s.jacketByLead.values.all { it.decided == 0 }) Text("Builds up as forecasts are stored through the day.")
+                else s.jacketByLead.forEach { (lead, j) ->
+                    Text("$lead h ahead: " + (j.share?.let { "right ${(it * 100).roundToInt()}%, ${j.right} of ${j.decided} windows" } ?: "no windows yet") +
+                        if (j.maybes > 0) ", ${j.maybes} maybe" else "", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            Section("When forecasts settle") {
+                Text(
+                    "For each hour of the last week: how far ahead every source's forecast became right and then stayed right " +
+                        "through to the hour (rain or dry; temperature within ${app.weathertrack.core.sources.Drift.TEMP_OK.roundToInt()}°; " +
+                        "wind within ${app.weathertrack.core.sources.Drift.WIND_OK.roundToInt()} km/h; cloud within ${app.weathertrack.core.sources.Drift.CLOUD_OK.roundToInt()} points). " +
+                        "Typical is the median; the columns are the share of hours already settled that far out.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (s.settled.isEmpty()) Text("Needs a few days of hourly runs. Open Sources now and then, or let the app refresh in the background.")
+                s.settled.groupBy { it.variable }.forEach { (v, rows) ->
+                    Text(v.label, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
+                    SettledRow("Source", "Typical", "3 h", "6 h", "12 h", "24 h", header = true)
+                    rows.sortedByDescending { it.medianLeadH }.forEach { r ->
+                        SettledRow(app.weathertrack.core.sources.Sources.label(r.source), "${r.medianLeadH.roundToInt()} h",
+                            pct(r.by3), pct(r.by6), pct(r.by12), pct(r.by24))
+                    }
+                }
+            }
+
             Section("Highs by kind of cloud") {
                 Text(
                     "Daily high misses grouped by the cloud forecast for the day (9 am to 5 pm). Low cloud that lingers, like sea " +
@@ -263,6 +295,19 @@ fun ForecastCheckScreen(
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+private fun pct(v: Double) = "${(v * 100).roundToInt()}%"
+
+@Composable
+private fun SettledRow(a: String, b: String, c: String, d: String, e: String, f: String, header: Boolean = false) {
+    val w = if (header) FontWeight.SemiBold else FontWeight.Normal
+    Row(Modifier.fillMaxWidth()) {
+        Text(a, Modifier.weight(2.2f), style = MaterialTheme.typography.bodySmall, fontWeight = w, maxLines = 1)
+        listOf(b, c, d, e, f).forEach {
+            Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, fontWeight = w, textAlign = androidx.compose.ui.text.style.TextAlign.End, maxLines = 1)
         }
     }
 }

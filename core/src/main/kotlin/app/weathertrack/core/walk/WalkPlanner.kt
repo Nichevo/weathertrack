@@ -14,7 +14,7 @@ data class WalkWindow(val name: String, val start: LocalTime, val end: LocalTime
 
 enum class WalkRating { GOOD, FAIR, POOR }
 
-enum class WalkIssueKind { PET_HEAT, HOT_PAVEMENT, COLD, RAIN, THUNDER, WIND, MUGGY, UV, DARK }
+enum class WalkIssueKind { PET_HEAT, WARM, HOT_PAVEMENT, COLD, RAIN, THUNDER, WIND, MUGGY, UV, DARK }
 
 data class WalkIssue(val kind: WalkIssueKind, val rating: WalkRating, val text: String)
 
@@ -22,6 +22,8 @@ data class WalkThresholds(
     /** Feels-like at or above this is too hot for a dog (POOR); 2° below is FAIR. */
     val petHotFeelsLike: Double = 24.0,
     val coldFeelsLike: Double = 5.0,
+    /** Where your own taps say it gets too warm for you (FAIR), if learned. */
+    val youWarmFeelsLike: Double? = null,
     val rainChancePoor: Double = 50.0,
     val rainChanceFair: Double = 25.0,
     val gustPoor: Double = 50.0,
@@ -67,6 +69,8 @@ object WalkPlanner {
                     f >= t.petHotFeelsLike -> add(WalkIssue(WalkIssueKind.PET_HEAT, WalkRating.POOR, "Too hot for the pup (feels ${f.roundToInt()}°)"))
                     f >= t.petHotFeelsLike - 2 -> add(WalkIssue(WalkIssueKind.PET_HEAT, WalkRating.FAIR, "Warm for the pup (feels ${f.roundToInt()}°)"))
                     f <= t.coldFeelsLike -> add(WalkIssue(WalkIssueKind.COLD, WalkRating.FAIR, "Cold (feels ${f.roundToInt()}°)"))
+                    t.youWarmFeelsLike != null && f >= t.youWarmFeelsLike ->
+                        add(WalkIssue(WalkIssueKind.WARM, WalkRating.FAIR, "Warm for you (feels ${f.roundToInt()}°)"))
                 }
             }
             val pave = Pavement.estimate(h.temperature, h.shortwaveRadiation, h.windSpeed)

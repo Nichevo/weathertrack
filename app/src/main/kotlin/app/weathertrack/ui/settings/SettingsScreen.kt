@@ -122,6 +122,8 @@ fun SettingsScreen(
                 { repo.update { it.copy(jacketGustKmh = (it.jacketGustKmh + 5).coerceAtMost(120)) } })
             Stepper("Feels like at or below", "${s.jacketFeelsLike}°", { repo.update { it.copy(jacketFeelsLike = it.jacketFeelsLike - 1) } },
                 { repo.update { it.copy(jacketFeelsLike = it.jacketFeelsLike + 1) } })
+            Toggle("Learn from my Chilly / Too warm taps", s.learnComfort) { on -> repo.update { it.copy(learnComfort = on) } }
+            Note(comfortNote(s))
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
             Section("Triggers")
@@ -221,6 +223,20 @@ fun SettingsScreen(
 }
 
 /** Installed version, a newer build on GitHub if there is one, and links to What's new and Planned. */
+/** What the comfort model has learned and whether it's in use. */
+private fun comfortNote(s: app.weathertrack.settings.AppSettings): String {
+    fun d(v: Double) = if (v % 1.0 == 0.0) "${v.toInt()}°" else String.format(Locale.US, "%.1f°", v)
+    val learned = listOfNotNull(
+        s.learnedChilly.takeIf { !it.isNaN() }?.let { "chilly at ${d(it)} feels-like" },
+        s.learnedWarm.takeIf { !it.isNaN() }?.let { "too warm from ${d(it)}" },
+    )
+    if (learned.isEmpty()) return "Tap Chilly or Too warm on Today when you feel it. After ${app.weathertrack.core.comfort.Comfort.MIN_TAPS} taps of a kind " +
+        "(from the last year) the app uses where you feel it in place of the settings above and the too-hot trigger."
+    val what = "Your taps say: ${learned.joinToString(", ")}."
+    return if (s.learnComfort) "$what Used for the jacket call, the too-hot alert and walk ratings in place of the numbers set here."
+    else "$what Switched off, so the numbers set here are used."
+}
+
 @Composable
 private fun AboutSection(onOpenAbout: (Int) -> Unit) {
     val context = LocalContext.current

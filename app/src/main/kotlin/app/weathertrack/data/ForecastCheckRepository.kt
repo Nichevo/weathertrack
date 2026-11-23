@@ -147,6 +147,14 @@ class ForecastCheckRepository(
             }
         }
 
+    /** Your chilly / too warm taps from every place, for the comfort model. */
+    suspend fun allFeelings(from: Long): List<app.weathertrack.core.comfort.Feeling> =
+        db.feelingReportDao().allSince(from).mapNotNull { e ->
+            app.weathertrack.core.comfort.Feeling.Kind.of(e.kind)?.let {
+                app.weathertrack.core.comfort.Feeling(e.reportedAt, it, e.temperature, e.feelsLike, e.windSpeed, e.windDirection, e.humidity)
+            }
+        }
+
     suspend fun reports(placeId: Long, from: Long): List<app.weathertrack.core.accuracy.RainReport> =
         reportDao.since(placeId, from).map { app.weathertrack.core.accuracy.RainReport(it.reportedAt, it.raining, it.forecastMm, it.radarHere) }
 

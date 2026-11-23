@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         ObservedHourEntity::class, PreviousRunHourEntity::class, UserReportEntity::class,
         SourceHourEntity::class, SourceDayEntity::class, FeelingReportEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -31,7 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         const val NAME = "weathertrack.db"
         /** Keep in step with @Database(version). */
-        const val VERSION = 11
+        const val VERSION = 12
 
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, NAME)

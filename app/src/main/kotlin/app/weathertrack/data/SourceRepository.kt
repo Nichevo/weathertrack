@@ -6,6 +6,10 @@ import app.weathertrack.core.accuracy.RainReport
 import app.weathertrack.core.model.Forecast
 import app.weathertrack.core.sources.BlendHour
 import app.weathertrack.core.sources.DayScore
+import app.weathertrack.core.sources.Drift
+import app.weathertrack.core.sources.ForecastChange
+import app.weathertrack.core.sources.Lead
+import app.weathertrack.core.sources.Settled
 import app.weathertrack.core.sources.PastHour
 import app.weathertrack.core.sources.IssuedSourceHour
 import app.weathertrack.core.sources.SourceHour
@@ -41,6 +45,9 @@ data class SourceView(
     val days: List<DayScore> = emptyList(),
     /** Earlier days summed per source and week (Monday start). */
     val weeks: List<DayScore> = emptyList(),
+    /** Each source's record and blend weights by how far ahead the forecast was made. */
+    val leadScores: Map<Lead, List<SourceScore>> = emptyMap(),
+    val leadWeights: Map<Lead, List<SourceWeight>> = emptyMap(),
 )
 
 /**
@@ -96,7 +103,7 @@ class SourceRepository(
                     windSpeed = it.windSpeed, cloudCover = it.cloudCover) }
         }
         if (rows.isNotEmpty()) dao.insertAll(rows)
-        runCatching { dao.prune(now, now - KEEP_DAYS * 86400, MIN_LEAD_H * HOUR) }.onFailure { Log.w("Sources", "Prune failed", it) }
+        runCatching { dao.prune(now - ALL_RUNS_DAYS * 86400, now - KEEP_DAYS * 86400) }.onFailure { Log.w("Sources", "Prune failed", it) }
     }
 
     private suspend fun fetch(
@@ -127,7 +134,7 @@ class SourceRepository(
             .map { SourceHour(it.source, it.time, it.temperature, it.precipitation, it.rainChance, it.windSpeed, it.cloudCover) }
 
     suspend fun issued(placeId: Long, from: Long, to: Long): List<IssuedSourceHour> =
-        dao.forScoring(placeId, from, to, MIN_LEAD_H * HOUR, (MAX_LEAD_H + 1) * HOUR - 1).map {
+        dao.forScoring(placeId, from, to, MIN_LEAD_H * HOUR, (KEEP_AHEAD_H + 1L) * HOUR - 1).map {
             IssuedSourceHour(it.source, it.issuedAt, it.time, it.temperature, it.precipitation, it.rainChance, it.windSpeed, it.cloudCover)
         }
 
@@ -142,6 +149,8 @@ class SourceRepository(
         val scores = Sources.scores(issued, obs, reports, MIN_LEAD_H.toInt(), MAX_LEAD_H.toInt())
         val keys = latest.map { it.source }.distinct()
         val weights = Sources.weights(keys, scores)
+        val leadScores = Sources.leadScores(issued, obs, reports)
+        val leadWeights = Sources.leadWeights(keys, weights, leadScores)
 
         val today = LocalDate.now(zone)
         val past = Sources.pastHours(issued, obs, MIN_LEAD_H.toInt(), MAX_LEAD_H.toInt())
@@ -149,20 +158,41 @@ class SourceRepository(
         val fresh = today.minusDays(SUMMARY_DAYS)
         runCatching {
             dayDao.upsert(Sources.daily(past, zone).filter { !it.date.isBefore(fresh) }.map {
-                SourceDayEntity(placeId, it.date.toString(), it.source, it.hours, it.tempAbsSum, it.tempErrSum, it.tempN, it.rainRight, it.rainN)
+                SourceDayEntity(placeId, it.date.toString(), it.source, it.hours, it.tempAbsSum, it.tempErrSum, it.tempN, it.rainRight, it.rainN,
+                    it.windAbsSum, it.windN, it.cloudAbsSum, it.cloudN)
             })
         }.onFailure { Log.w("Sources", "Saving daily records failed", it) }
         val stored = runCatching { dayDao.since(placeId, today.minusYears(3).toString()) }.getOrDefault(emptyList()).map {
-            DayScore(LocalDate.parse(it.date), it.source, it.hours, it.tempAbsSum, it.tempErrSum, it.tempN, it.rainRight, it.rainN)
+            DayScore(LocalDate.parse(it.date), it.source, it.hours, it.tempAbsSum, it.tempErrSum, it.tempN, it.rainRight, it.rainN,
+                it.windAbsSum ?: 0.0, it.windN ?: 0, it.cloudAbsSum ?: 0.0, it.cloudN ?: 0)
         }
         val weekStart = today.minusDays(RECENT_DAYS - 1)
         val recentFrom = weekStart.atStartOfDay(zone).toEpochSecond()
         return SourceView(
-            latest, scores, weights, Sources.blend(latest, weights, now - HOUR),
+            latest, scores, weights, Sources.blend(latest, weights, now - HOUR, byLead = leadWeights, now = now),
             past = past.filter { it.time > recentFrom },
             days = stored.filter { !it.date.isBefore(weekStart) },
             weeks = Sources.weekly(stored.filter { it.date.isBefore(weekStart) }),
+            leadScores = leadScores, leadWeights = leadWeights,
         )
+    }
+
+    /** How far ahead each source's forecasts settled, over the last week (every run is kept that long). */
+    suspend fun settled(placeId: Long, obs: List<ObsHour>): List<Settled> {
+        val now = System.currentTimeMillis() / 1000
+        val runs = dao.forScoring(placeId, now - ALL_RUNS_DAYS * 86400, now, HOUR, (KEEP_AHEAD_H + 1L) * HOUR - 1).map {
+            IssuedSourceHour(it.source, it.issuedAt, it.time, it.temperature, it.precipitation, it.rainChance, it.windSpeed, it.cloudCover)
+        }
+        return Drift.settled(runs, obs)
+    }
+
+    /** Big changes in the app's own forecast for the coming hours since this morning's run. */
+    suspend fun changes(placeId: Long, zone: ZoneId): List<ForecastChange> {
+        val now = System.currentTimeMillis() / 1000
+        val runs = dao.runsOf(placeId, Sources.MAIN.id, now, now + 18 * HOUR).map {
+            IssuedSourceHour(it.source, it.issuedAt, it.time, it.temperature, it.precipitation, it.rainChance, it.windSpeed, it.cloudCover)
+        }
+        return Drift.changes(runs, now, Drift.baseline(now, zone))
     }
 
     companion object {
@@ -172,6 +202,8 @@ class SourceRepository(
         /** Forecast leads that count towards a source's record. */
         private const val MIN_LEAD_H = 1L
         private const val MAX_LEAD_H = 30L
+        /** Days of past hours that keep every run (for "settled at"); earlier ones keep one per lead group. */
+        private const val ALL_RUNS_DAYS = 7L
         /** Days of past source hours kept (scores look back 60). */
         private const val KEEP_DAYS = 62L
         private const val FORCE_MIN_S = 600L

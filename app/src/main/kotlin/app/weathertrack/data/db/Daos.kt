@@ -236,6 +236,10 @@ interface FeelingReportDao {
 
     @Query("SELECT * FROM feeling_report WHERE place_id = :placeId AND reported_at >= :from ORDER BY reported_at")
     suspend fun since(placeId: Long, from: Long): List<FeelingReportEntity>
+
+    /** Every place's reports: how you feel goes with you. */
+    @Query("SELECT * FROM feeling_report WHERE reported_at >= :from ORDER BY reported_at")
+    suspend fun allSince(from: Long): List<FeelingReportEntity>
 }
 
 @Dao
@@ -263,13 +267,24 @@ interface SourceHourDao {
     suspend fun forScoring(placeId: Long, from: Long, to: Long, minLeadS: Long, maxLeadS: Long): List<SourceHourEntity>
 
     /**
-     * Keeps the table small: drops rows of deleted places, rows older than [before], and past hours
-     * that a later forecast (still at least [minLeadS] ahead) has replaced, since scoring only uses that later one.
+     * Keeps the table small: drops rows of deleted places and rows older than [before]. Past hours before
+     * [allRunsFrom] keep only the latest forecast in each lead group (under 1 h, up to 3 h, 6 h, 12 h, 24 h,
+     * and beyond), since scoring uses only those; later hours keep every run for "settled at".
      */
-    @Query("""DELETE FROM source_hour WHERE place_id NOT IN (SELECT id FROM place) OR time < :before OR (time < :now AND EXISTS (
+    @Query("""DELETE FROM source_hour WHERE place_id NOT IN (SELECT id FROM place) OR time < :before OR (time < :allRunsFrom AND EXISTS (
         SELECT 1 FROM source_hour b WHERE b.place_id = source_hour.place_id AND b.source = source_hour.source
-        AND b.time = source_hour.time AND b.issued_at > source_hour.issued_at AND b.time - b.issued_at >= :minLeadS))""")
-    suspend fun prune(now: Long, before: Long, minLeadS: Long): Int
+        AND b.time = source_hour.time AND b.issued_at > source_hour.issued_at
+        AND (CASE WHEN (b.time - b.issued_at) / 3600 < 1 THEN 0 WHEN (b.time - b.issued_at) / 3600 <= 3 THEN 1
+            WHEN (b.time - b.issued_at) / 3600 <= 6 THEN 2 WHEN (b.time - b.issued_at) / 3600 <= 12 THEN 3
+            WHEN (b.time - b.issued_at) / 3600 <= 24 THEN 4 ELSE 5 END)
+          = (CASE WHEN (source_hour.time - source_hour.issued_at) / 3600 < 1 THEN 0 WHEN (source_hour.time - source_hour.issued_at) / 3600 <= 3 THEN 1
+            WHEN (source_hour.time - source_hour.issued_at) / 3600 <= 6 THEN 2 WHEN (source_hour.time - source_hour.issued_at) / 3600 <= 12 THEN 3
+            WHEN (source_hour.time - source_hour.issued_at) / 3600 <= 24 THEN 4 ELSE 5 END)))""")
+    suspend fun prune(allRunsFrom: Long, before: Long): Int
+
+    /** Every run of the "main" (or any [source]) forecast for hours from [from] to [to]. */
+    @Query("SELECT * FROM source_hour WHERE place_id = :placeId AND source = :source AND time > :from AND time <= :to")
+    suspend fun runsOf(placeId: Long, source: String, from: Long, to: Long): List<SourceHourEntity>
 
     @Query("SELECT COUNT(*) FROM source_hour")
     fun count(): Flow<Int>

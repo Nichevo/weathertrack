@@ -36,7 +36,29 @@ data class IssuedSourceHour(
 )
 
 /** One past hour: what happened, and each source's forecast for it. */
-data class PastHour(val time: Long, val temperature: Double?, val precipitation: Double?, val forecasts: Map<String, IssuedSourceHour>)
+data class PastHour(
+    val time: Long, val temperature: Double?, val precipitation: Double?, val forecasts: Map<String, IssuedSourceHour>,
+    /** Actual wind (km/h) and cloud cover (0..100). */
+    val windSpeed: Double? = null,
+    val cloudCover: Double? = null,
+)
+
+/**
+ * How far ahead a forecast was made, in groups. A source can be good a day out and poor in the last
+ * few hours (or the other way round), so each group gets its own record and blend weights.
+ */
+enum class Lead(val label: String, val minH: Int, val maxH: Int) {
+    SOON("Up to 3 h", 1, 3),
+    MORNING("3 to 6 h", 4, 6),
+    HALF_DAY("6 to 12 h", 7, 12),
+    DAY("12 to 24 h", 13, 24),
+    NEXT_DAY("1 to 2 days", 25, 48);
+
+    companion object {
+        /** The group for a forecast [hours] ahead; under an hour counts as the soonest. */
+        fun of(hours: Long): Lead = entries.firstOrNull { hours <= it.maxH } ?: NEXT_DAY
+    }
+}
 
 /**
  * One source over one period (a day, or a week when summed): hours checked, temperature misses and
@@ -53,13 +75,21 @@ data class DayScore(
     val tempN: Int,
     val rainRight: Int,
     val rainN: Int,
+    /** Wind speed miss (km/h) and cloud cover miss (points), summed, with hours checked. */
+    val windAbsSum: Double = 0.0,
+    val windN: Int = 0,
+    val cloudAbsSum: Double = 0.0,
+    val cloudN: Int = 0,
 ) {
     val tempMae: Double? get() = if (tempN > 0) tempAbsSum / tempN else null
     val tempBias: Double? get() = if (tempN > 0) tempErrSum / tempN else null
     val wetDryRight: Double? get() = if (rainN > 0) rainRight.toDouble() / rainN else null
+    val windMae: Double? get() = if (windN > 0) windAbsSum / windN else null
+    val cloudMae: Double? get() = if (cloudN > 0) cloudAbsSum / cloudN else null
 
     operator fun plus(o: DayScore) = copy(hours = hours + o.hours, tempAbsSum = tempAbsSum + o.tempAbsSum,
-        tempErrSum = tempErrSum + o.tempErrSum, tempN = tempN + o.tempN, rainRight = rainRight + o.rainRight, rainN = rainN + o.rainN)
+        tempErrSum = tempErrSum + o.tempErrSum, tempN = tempN + o.tempN, rainRight = rainRight + o.rainRight, rainN = rainN + o.rainN,
+        windAbsSum = windAbsSum + o.windAbsSum, windN = windN + o.windN, cloudAbsSum = cloudAbsSum + o.cloudAbsSum, cloudN = cloudN + o.cloudN)
 }
 
 data class SourceScore(
@@ -315,7 +345,7 @@ object Sources {
             .map { (time, rows) ->
                 val a = actual.getValue(time)
                 PastHour(time, a.temperature, a.precipitation,
-                    rows.groupBy { it.source }.mapValues { (_, v) -> v.maxBy { it.issuedAt } })
+                    rows.groupBy { it.source }.mapValues { (_, v) -> v.maxBy { it.issuedAt } }, a.windSpeed, a.cloudCover)
             }
             .sortedByDescending { it.time }
     }
@@ -327,7 +357,10 @@ object Sources {
                 hours.flatMap { h -> h.forecasts.values.map { h to it } }.groupBy { it.second.source }.map { (src, pairs) ->
                     val errs = pairs.mapNotNull { (h, f) -> if (h.temperature != null && f.temperature != null) f.temperature - h.temperature else null }
                     val rain = pairs.mapNotNull { (h, f) -> if (h.precipitation != null && f.precipitation != null) (f.precipitation >= WET_MM) == (h.precipitation >= WET_MM) else null }
-                    DayScore(date, src, pairs.size, errs.sumOf { abs(it) }, errs.sum(), errs.size, rain.count { it }, rain.size)
+                    val wind = pairs.mapNotNull { (h, f) -> if (h.windSpeed != null && f.windSpeed != null) abs(f.windSpeed - h.windSpeed) else null }
+                    val cloud = pairs.mapNotNull { (h, f) -> if (h.cloudCover != null && f.cloudCover != null) abs(f.cloudCover - h.cloudCover) else null }
+                    DayScore(date, src, pairs.size, errs.sumOf { abs(it) }, errs.sum(), errs.size, rain.count { it }, rain.size,
+                        wind.sum(), wind.size, cloud.sum(), cloud.size)
                 }
             }
             .sortedWith(compareByDescending<DayScore> { it.date }.thenBy { it.source })
@@ -350,10 +383,13 @@ object Sources {
      * until there have been about [PRIOR_RAIN_EVENTS] wet hours (or reports), and they are judged with
      * wet and dry hours counted equally. Sources with no record get the equal share.
      */
-    fun weights(sources: List<String>, scores: List<SourceScore>): List<SourceWeight> {
+    fun weights(sources: List<String>, scores: List<SourceScore>, prior: List<SourceWeight>? = null): List<SourceWeight> {
         if (sources.isEmpty()) return emptyList()
         val byId = scores.associateBy { it.source }
         val equal = 1.0 / sources.size
+        // With a [prior] (the all-leads weights), a thin record leans on that instead of equal shares.
+        val pri = prior?.associateBy { it.source }
+        fun base(s: String, pick: (SourceWeight) -> Double) = pri?.get(s)?.let(pick) ?: equal
         fun norm(raw: Map<String, Double>): Map<String, Double> { val s = raw.values.sum(); return raw.mapValues { it.value / s } }
         val tempSkill = norm(sources.associateWith { s -> byId[s]?.tempMae?.let { 1 / (it * it + 0.25) } ?: 0.0 }.let { m ->
             val known = m.values.filter { it > 0 }; val fill = if (known.isEmpty()) 1.0 else known.average(); m.mapValues { if (it.value > 0) it.value else fill } })
@@ -374,8 +410,8 @@ object Sources {
             val kw = wn / (wn + PRIOR_HOURS)
             val cn = (sc?.cloudHours ?: 0).toDouble()
             val kc = cn / (cn + PRIOR_HOURS)
-            SourceWeight(s, kt * tempSkill.getValue(s) + (1 - kt) * equal, kr * rainSkill.getValue(s) + (1 - kr) * equal,
-                kw * windSkill.getValue(s) + (1 - kw) * equal, kc * cloudSkill.getValue(s) + (1 - kc) * equal)
+            SourceWeight(s, kt * tempSkill.getValue(s) + (1 - kt) * base(s) { it.temp }, kr * rainSkill.getValue(s) + (1 - kr) * base(s) { it.rain },
+                kw * windSkill.getValue(s) + (1 - kw) * base(s) { it.wind }, kc * cloudSkill.getValue(s) + (1 - kc) * base(s) { it.cloud })
         }
         val tSum = raw.sumOf { it.temp }; val rSum = raw.sumOf { it.rain }
         val wSum = raw.sumOf { it.wind }; val cSum = raw.sumOf { it.cloud }
@@ -383,10 +419,26 @@ object Sources {
             .sortedByDescending { it.rain }
     }
 
-    /** Weighted blend of the latest forecast from each source, hour by hour. */
-    fun blend(latest: List<SourceHour>, weights: List<SourceWeight>, from: Long, hours: Int = 48): List<BlendHour> {
-        val w = weights.associateBy { it.source }
+    /** Scores for each lead group, as [scores] does for all leads together. */
+    fun leadScores(issued: List<IssuedSourceHour>, obs: List<ObsHour>, reports: List<RainReport> = emptyList()): Map<Lead, List<SourceScore>> =
+        Lead.entries.associateWith { scores(issued, obs, reports, it.minH, it.maxH) }
+
+    /** Weights for each lead group, leaning on the all-leads [pooled] weights while a group's record is thin. */
+    fun leadWeights(sources: List<String>, pooled: List<SourceWeight>, byLead: Map<Lead, List<SourceScore>>): Map<Lead, List<SourceWeight>> =
+        byLead.mapValues { (_, sc) -> weights(sources, sc, prior = pooled) }
+
+    /**
+     * Weighted blend of the latest forecast from each source, hour by hour. With [byLead], each hour uses
+     * the weights for how far ahead of [now] it is.
+     */
+    fun blend(
+        latest: List<SourceHour>, weights: List<SourceWeight>, from: Long, hours: Int = 48,
+        byLead: Map<Lead, List<SourceWeight>> = emptyMap(), now: Long = from,
+    ): List<BlendHour> {
+        val pooled = weights.associateBy { it.source }
+        val leadMaps = byLead.mapValues { (_, v) -> v.associateBy { it.source } }
         return latest.filter { it.time > from && it.time <= from + hours * 3600L }.groupBy { it.time }.toSortedMap().map { (time, rows) ->
+            val w = leadMaps[Lead.of((time - now) / 3600)] ?: pooled
             val t = rows.filter { it.temperature != null && w[it.source] != null }
             val r = rows.filter { it.rainChance != null && w[it.source] != null }
             val tw = t.sumOf { w.getValue(it.source).temp }

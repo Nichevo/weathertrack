@@ -57,6 +57,8 @@ data class HomeState(
     val sources: app.weathertrack.data.SourceView? = null,
     /** What your chilly / too warm / pollen taps say so far. */
     val comfort: List<String> = emptyList(),
+    /** Big changes in the forecast for the coming hours since this morning. */
+    val changes: List<app.weathertrack.core.sources.ForecastChange> = emptyList(),
 )
 
 class HomeViewModel(
@@ -177,7 +179,8 @@ class HomeViewModel(
             val from = now - 60 * 86400L
             sources.view(place.id, Format.zone(place.timezone), forecastCheck.observed(place.id, from), forecastCheck.reports(place.id, from))
         }.getOrNull()
-        if (_state.value.place?.id == place.id) _state.update { it.copy(sources = view) }
+        val changes = runCatching { sources.changes(place.id, Format.zone(place.timezone)) }.getOrDefault(emptyList())
+        if (_state.value.place?.id == place.id) _state.update { it.copy(sources = view, changes = changes) }
     }
 
     private suspend fun loadExtras(place: PlaceEntity) {
@@ -249,7 +252,21 @@ class HomeViewModel(
             app.weathertrack.core.comfort.Comfort.summary(forecastCheck.feelings(place.id, System.currentTimeMillis() / 1000 - 3 * 365 * 86400L), zone)
         }.getOrDefault(emptyList())
         if (_state.value.place?.id == place.id) _state.update { it.copy(comfort = lines) }
+        // Keep the learned comfort points in settings, where the jacket call, alerts and walks read them.
+        runCatching {
+            val now = System.currentTimeMillis() / 1000
+            val m = app.weathertrack.core.comfort.Comfort.model(forecastCheck.allFeelings(now - 400 * 86400L), now)
+            fun half(v: Double?) = v?.let { Math.round(it * 2) / 2.0 } ?: Double.NaN
+            val chilly = half(m.chilly); val warm = half(m.warm)
+            val cur = settings.current
+            if (!sameValue(cur.learnedChilly, chilly) || !sameValue(cur.learnedWarm, warm)) {
+                settings.update { it.copy(learnedChilly = chilly, learnedWarm = warm) }
+                recompute()
+            }
+        }
     }
+
+    private fun sameValue(a: Double, b: Double) = (a.isNaN() && b.isNaN()) || a == b
 
     fun refresh(trigger: String = "manual") {
         val place = _state.value.place ?: return

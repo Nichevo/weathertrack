@@ -59,7 +59,20 @@ data class AppSettings(
     val tidePort: String = "",
     /** Detail kept for forecasts older than 30 days: "all", "hourly" or "3h" (see KeepOlder). */
     val keepOlder: String = "hourly",
+    /** Use what your Chilly / Too warm taps say in place of the jacket and too-hot feels-like settings. */
+    val learnComfort: Boolean = true,
+    /** Learned from your taps (see Comfort.model); NaN when there aren't enough yet. */
+    val learnedChilly: Double = Double.NaN,
+    val learnedWarm: Double = Double.NaN,
 ) {
+    /** The feels-like at or below which the jacket call says yes: learned if on and known, else your setting. */
+    val jacketFeels: Double
+        get() = if (learnComfort && !learnedChilly.isNaN()) learnedChilly else jacketFeelsLike.toDouble()
+
+    /** The feels-like at or above which it's too hot for you. */
+    val hotFeels: Double
+        get() = if (learnComfort && !learnedWarm.isNaN()) learnedWarm else hotFeelsLike.toDouble()
+
     val degreeDayBases: DegreeDayBases
         get() = DegreeDayBases(heating = heatingBase.toDouble(), cooling = coolingBase.toDouble())
 
@@ -67,7 +80,8 @@ data class AppSettings(
         get() = listOf(WalkWindow("Morning walk", walk1Start, walk1End), WalkWindow("Evening walk", walk2Start, walk2End))
 
     val walkThresholds: WalkThresholds
-        get() = WalkThresholds(petHotFeelsLike = petHotFeelsLike.toDouble(), coldFeelsLike = coldFeelsLike.toDouble())
+        get() = WalkThresholds(petHotFeelsLike = petHotFeelsLike.toDouble(), coldFeelsLike = coldFeelsLike.toDouble(),
+            youWarmFeelsLike = if (learnComfort && !learnedWarm.isNaN()) learnedWarm else null)
 
     val jacketThresholds: JacketThresholds
         get() = JacketThresholds(
@@ -77,13 +91,13 @@ data class AppSettings(
             rainTotalMmMaybe = (jacketRainMm / 5).coerceAtLeast(0.1),
             gustKmhYes = jacketGustKmh.toDouble(),
             gustKmhMaybe = (jacketGustKmh - 10).toDouble(),
-            feelsLikeYes = jacketFeelsLike.toDouble(),
-            feelsLikeMaybe = (jacketFeelsLike + 3).toDouble(),
+            feelsLikeYes = jacketFeels,
+            feelsLikeMaybe = jacketFeels + 3,
         )
 
     val triggerThresholds: TriggerThresholds
         get() = TriggerThresholds(
-            hotFeelsLike = hotFeelsLike.toDouble(),
+            hotFeelsLike = hotFeels,
             coldFeelsLike = coldFeelsLike.toDouble(),
             rainSoonMinutes = rainSoonMinutes,
         )
@@ -142,6 +156,9 @@ class SettingsRepository(context: Context) {
             lockGlance = prefs.getBoolean("lock_glance", d.lockGlance),
             tidePort = prefs.getString("tide_port", d.tidePort) ?: d.tidePort,
             keepOlder = prefs.getString("keep_older", d.keepOlder) ?: d.keepOlder,
+            learnComfort = prefs.getBoolean("learn_comfort", d.learnComfort),
+            learnedChilly = prefs.getFloat("learned_chilly", Float.NaN).toDouble(),
+            learnedWarm = prefs.getFloat("learned_warm", Float.NaN).toDouble(),
         )
     }
 
@@ -181,6 +198,9 @@ class SettingsRepository(context: Context) {
             .putBoolean("lock_glance", s.lockGlance)
             .putString("tide_port", s.tidePort)
             .putString("keep_older", s.keepOlder)
+            .putBoolean("learn_comfort", s.learnComfort)
+            .putFloat("learned_chilly", s.learnedChilly.toFloat())
+            .putFloat("learned_warm", s.learnedWarm.toFloat())
             .apply()
     }
 }
