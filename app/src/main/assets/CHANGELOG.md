@@ -2,6 +2,15 @@
 
 Each release adds a section at the top. The app shows the one matching the installed version.
 
+## 1.2 · Comfort and lead time
+- The app learns from your Chilly and Too warm taps: once there are 3 of a kind from the last year, where you usually feel it replaces the jacket feels-like and too-hot settings, and walks flag "Warm for you". Settings shows what it has learned and can switch it off.
+- Sources are now scored separately by how far ahead the forecast was made (up to 3 h, 3 to 6 h, 6 to 12 h, 12 to 24 h, 1 to 2 days), and the blend uses the weights for each hour's lead.
+- Sources: Wind and Cloud next to Rain chance and Temperature in the side-by-side grid and in Past forecasts (hours, days and weeks), shaded by how far off they were.
+- Forecast check: "When forecasts settle" shows how far ahead each source got rain, temperature, wind and cloud right and then stayed right.
+- Forecast check: jacket calls scored 1, 3, 6 and 12 hours ahead.
+- Today: big changes since the morning, like "Rain at 3 pm up from 20% to 60% since 6 am".
+- Every forecast run is now kept for a week so these can be worked out. Older hours keep the latest forecast in each lead group.
+
 ## 1.1 · Harden
 - Stored data stays a sensible size: downloads older than 30 days are compressed, failed downloads are removed, and older forecasts are thinned to one an hour (or every three hours, or kept in full, your choice on the Data screen). It runs weekly while charging and idle, or with "Tidy up now".
 - Lighter on the battery: background refresh waits for a battery that isn't low, the rain map widget redraws every 30 minutes when the screen is off or battery saver is on, and rain-soon checks relax in battery saver.

@@ -39,6 +39,24 @@ object Comfort {
     fun warmPoint(f: List<Feeling>): Double? =
         f.filter { it.kind == Feeling.Kind.WARM }.mapNotNull { it.feelsLike }.takeIf { it.size >= MIN_TAPS }?.let(::median)
 
+    /** Your learned comfort points, from taps in the last year. */
+    data class Model(val chilly: Double?, val chillyTaps: Int, val warm: Double?, val warmTaps: Int) {
+        val any get() = chilly != null || warm != null
+    }
+
+    /**
+     * What your taps from the last [days] days say: where you usually feel chilly and where too warm.
+     * If they overlap (chilly at or above too warm), neither is trusted yet.
+     */
+    fun model(f: List<Feeling>, now: Long, days: Int = 365): Model {
+        val recent = f.filter { it.time >= now - days * 86400L }
+        var chilly = chillyPoint(recent)
+        var warm = warmPoint(recent)
+        if (chilly != null && warm != null && chilly >= warm - 2) { chilly = null; warm = null }
+        return Model(chilly, recent.count { it.kind == Feeling.Kind.CHILLY && it.feelsLike != null },
+            warm, recent.count { it.kind == Feeling.Kind.WARM && it.feelsLike != null })
+    }
+
     data class PollenPattern(val taps: Int, val months: List<String>, val windFrom: String?, val windShare: Double?, val humidity: Double?)
 
     /** When pollen has bothered you: the usual months and wind direction. */

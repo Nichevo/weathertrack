@@ -282,6 +282,11 @@ data class SourceDayEntity(
     /** Hours where rain or no rain was called right, out of [rainN]. */
     @androidx.room.ColumnInfo(name = "rain_right") val rainRight: Int,
     @androidx.room.ColumnInfo(name = "rain_n") val rainN: Int,
+    /** Sum of |forecast − actual| wind speed (km/h) and cloud cover (points), over their hours checked. */
+    @androidx.room.ColumnInfo(name = "wind_abs_sum") val windAbsSum: Double? = null,
+    @androidx.room.ColumnInfo(name = "wind_n") val windN: Int? = null,
+    @androidx.room.ColumnInfo(name = "cloud_abs_sum") val cloudAbsSum: Double? = null,
+    @androidx.room.ColumnInfo(name = "cloud_n") val cloudN: Int? = null,
 )
 
 /** "Feeling chilly", "Too warm" or "Pollen bothering me", with the weather at that moment. */

@@ -268,6 +268,57 @@ object ForecastCheck {
         return JacketScore(right, wrong, maybes)
     }
 
+    /**
+     * Jacket calls by how far ahead they were made. Each day, the 3-hour windows starting at 6 am, 9 am,
+     * noon, 3 pm and 6 pm are called from the stored forecast issued closest to [leadH] hours before
+     * (within 40 minutes, or an hour for longer leads), and checked against what happened.
+     */
+    fun jacketByLead(
+        issued: List<IssuedHour>, obs: List<ObsHour>, zone: ZoneId, from: LocalDate,
+        thresholds: JacketThresholds, leadsH: List<Int> = listOf(1, 3, 6, 12), windowHours: Int = 3,
+        startHours: List<Int> = listOf(6, 9, 12, 15, 18),
+    ): Map<Int, JacketScore> {
+        val obsByTime = obs.associateBy { it.time }
+        val pulls = issued.groupBy { it.issuedAt }
+        val issueTimes = pulls.keys.sorted()
+        if (issueTimes.isEmpty()) return emptyMap()
+        val firstDay = maxOf(from, day(issueTimes.first(), zone))
+        val lastDay = day(obs.maxOfOrNull { it.time } ?: return emptyMap(), zone)
+        return leadsH.associateWith { lead ->
+            val tolerance = if (lead <= 1) 40 * 60L else 3600L
+            var right = 0; var wrong = 0; var maybes = 0
+            var d = firstDay
+            while (!d.isAfter(lastDay)) {
+                for (h in startHours) {
+                    val start = d.atTime(h, 0).atZone(zone).toEpochSecond()
+                    val target = start - lead * 3600L
+                    val at = nearest(issueTimes, target)?.takeIf { abs(it - target) <= tolerance } ?: continue
+                    val window = (0 until windowHours).mapNotNull { obsByTime[start + it * 3600L] }
+                    if (window.size < windowHours) continue
+                    val hours = pulls.getValue(at).map {
+                        HourPoint(it.time, it.temperature, it.feelsLike, it.rainChance, it.precipitation, null, null, it.gusts, null, null, null, null, null)
+                    }
+                    val verdict = JacketCalculator.evaluate(hours, start, windowHours, thresholds = thresholds).verdict
+                    val needed = window.sumOf { it.precipitation ?: 0.0 } >= thresholds.rainTotalMmYes ||
+                        (window.mapNotNull { it.gusts }.maxOrNull() ?: 0.0) >= thresholds.gustKmhYes ||
+                        (window.mapNotNull { it.feelsLike }.minOrNull() ?: 99.0) <= thresholds.feelsLikeYes
+                    when (verdict) {
+                        Verdict.MAYBE -> maybes++
+                        Verdict.YES -> if (needed) right++ else wrong++
+                        Verdict.NO -> if (needed) wrong++ else right++
+                    }
+                }
+                d = d.plusDays(1)
+            }
+            JacketScore(right, wrong, maybes)
+        }
+    }
+
+    private fun nearest(sorted: List<Long>, t: Long): Long? {
+        val i = sorted.binarySearch(t).let { if (it >= 0) return sorted[it] else -it - 1 }
+        return listOfNotNull(sorted.getOrNull(i - 1), sorted.getOrNull(i)).minByOrNull { abs(it - t) }
+    }
+
     /** The worst days: rain a day ahead that missed badly, and highs off by 3° or more two days ahead. */
     fun misses(runs: List<RunHour>, obs: List<ObsHour>, zone: ZoneId, from: LocalDate, count: Int = 3): List<Miss> {
         val actual = dailyActuals(obs, zone).filterKeys { !it.isBefore(from) }

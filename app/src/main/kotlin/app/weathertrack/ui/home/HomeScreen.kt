@@ -122,6 +122,7 @@ fun HomeScreen(
             if (forecast != null) {
                 item { NowRow(forecast, clock) }
                 item { CloudLines(forecast, zone) }
+                if (state.changes.isNotEmpty()) item { ChangeLines(state.changes, zone) }
                 item { SectionTitle("Next hours") }
                 item { HourStrip(forecast, zone) }
                 // 2. The next days, then their likely ranges.
@@ -456,6 +457,15 @@ private fun CloudLines(f: Forecast, zone: ZoneId) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         layers?.let { Text("Cloud: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         lines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium) }
+    }
+}
+
+/** Big changes in the forecast since this morning, e.g. "Rain at 3 pm up from 20% to 60% since 7 am". */
+@Composable
+private fun ChangeLines(changes: List<app.weathertrack.core.sources.ForecastChange>, zone: ZoneId) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text("Forecast changed", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        changes.forEach { Text(it.text(zone), style = MaterialTheme.typography.bodyMedium) }
     }
 }
 

@@ -2,9 +2,6 @@
 
 What's coming, in order. Each release moves to What's new when it ships.
 
-## Release 3 · Comfort model
-- Learn from Chilly / Too warm / Pollen taps how the weather feels to you, and use it in the triggers and walk ratings.
-
 ## Release 4 · Our own radar nowcast
 - Rain 30 to 60 minutes ahead, worked out from recent radar frames.
 
