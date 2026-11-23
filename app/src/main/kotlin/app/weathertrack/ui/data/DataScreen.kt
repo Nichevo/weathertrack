@@ -43,7 +43,7 @@ import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DataScreen(onBack: () -> Unit = {}) {
+fun DataScreen(onBack: () -> Unit = {}, embedded: Boolean = false) {
     val app = LocalContext.current.applicationContext as WeatherApp
     val db = app.container.database
     val exporter = app.container.exporter
@@ -81,7 +81,7 @@ fun DataScreen(onBack: () -> Unit = {}) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(
+        if (!embedded) TopAppBar(
             title = { Text("Your data") },
             navigationIcon = {
                 IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") }

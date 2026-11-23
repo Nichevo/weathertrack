@@ -2,6 +2,14 @@
 
 Each release adds a section at the top. The app shows the one matching the installed version.
 
+## 1.4 · History tabs and explorer
+- History now has tabs across the top: Past weather, Forecast check, Home energy and Data. They replace the small icons, and tapping History in the bottom bar always brings you back to Past weather.
+- Past weather opens with "this month so far": highs against normal, rain as a share of normal, and rain days.
+- New explorer: pick High, Low, Rain, Sun or Gusts, a month, season or year, and compare with the last 2 years, the usual 1991–2020 range and decades. Rain and sun build up through the period on the chart; highs, lows and gusts show day by day.
+- The year-on-year table adds how far each year was from normal, a count of notable days (rain days, sunny days, frosty nights…) and its rank since records began ("4th driest").
+- "Save this view" writes the table and chart lines to CSV; "Raw days" saves every stored day behind it.
+- Forecast check: chips at the top jump straight to each section.
+
 ## 1.3 · Pollen and folded widget
 - Our own hay fever estimate where there's no pollen forecast (all of NZ): a pollen season calendar times the weather. Warm, sunny, dry and breezy days raise it, rain clears it, and a sunny day after rain can bring a burst. Today shows Low, Moderate or High with the main reasons and the worst time of day. It's an estimate, not a measured count.
 - New "No symptoms today" button next to Pollen. After 30 reported days (at least 5 of each) the estimate fits itself to you.

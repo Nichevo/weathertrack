@@ -19,6 +19,9 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -26,9 +29,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import app.weathertrack.ui.climate.ClimateScreen
-import app.weathertrack.ui.data.DataScreen
-import app.weathertrack.ui.accuracy.ForecastCheckScreen
 import app.weathertrack.ui.history.HistoryScreen
 import app.weathertrack.ui.map.RadarIcon
 import app.weathertrack.ui.map.RainMapScreen
@@ -56,6 +56,8 @@ class MainActivity : ComponentActivity() {
                 val nav = rememberNavController()
                 val backStack by nav.currentBackStackEntryAsState()
                 val current = backStack?.destination?.route
+                // Bumped on every tap of History in the bottom bar, so it always opens on Past weather.
+                var historyReset by rememberSaveable { mutableIntStateOf(0) }
                 Scaffold(
                     // Each screen's top app bar handles the status bar inset itself.
                     contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -65,6 +67,7 @@ class MainActivity : ComponentActivity() {
                                 NavigationBarItem(
                                     selected = current == tab.route,
                                     onClick = {
+                                        if (tab.route == "history") historyReset++
                                         nav.navigate(tab.route) {
                                             popUpTo(nav.graph.findStartDestination().id) { saveState = true }
                                             launchSingleTop = true
@@ -94,16 +97,9 @@ class MainActivity : ComponentActivity() {
                         }
                         composable("sources") { app.weathertrack.ui.sources.SourcesScreen() }
                         composable("map") { RainMapScreen() }
-                        composable("history") {
-                            HistoryScreen(
-                                onOpenData = { nav.navigate("data") }, onOpenCheck = { nav.navigate("check") },
-                                onOpenHome = { nav.navigate("climate") },
-                            )
-                        }
-                        composable("climate") { ClimateScreen(onBack = { nav.popBackStack() }) }
+                        // Forecast check, Home energy and Data are tabs inside History.
+                        composable("history") { HistoryScreen(resetKey = historyReset) }
                         composable("places") { PlacesScreen(onBack = { nav.popBackStack() }) }
-                        composable("data") { DataScreen(onBack = { nav.popBackStack() }) }
-                        composable("check") { ForecastCheckScreen(onBack = { nav.popBackStack() }) }
                     }
                 }
             }
