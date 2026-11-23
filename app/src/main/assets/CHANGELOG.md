@@ -9,6 +9,8 @@ Each release adds a section at the top. The app shows the one matching the insta
 - The year-on-year table adds how far each year was from normal, a count of notable days (rain days, sunny days, frosty nights…) and its rank since records began ("4th driest").
 - "Save this view" writes the table and chart lines to CSV; "Raw days" saves every stored day behind it.
 - Forecast check: chips at the top jump straight to each section.
+- Every saved place now builds its record in the background, not just the one you have open: Forecast check actuals and earlier runs, home climate and the archive history all sync for each place about twice a day.
+- Places: a new "All sources" switch saves every forecast source hourly for that place too, so Sources can score them there. It's off by default because it costs about 13 downloads an hour per place.
 
 ## 1.3 · Pollen and folded widget
 - Our own hay fever estimate where there's no pollen forecast (all of NZ): a pollen season calendar times the weather. Warm, sunny, dry and breezy days raise it, rain clears it, and a sunny day after rain can bring a burst. Today shows Low, Moderate or High with the main reasons and the worst time of day. It's an estimate, not a measured count.
