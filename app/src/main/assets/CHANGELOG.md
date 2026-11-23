@@ -2,6 +2,13 @@
 
 Each release adds a section at the top. The app shows the one matching the installed version.
 
+## 1.3 · Pollen and folded widget
+- Our own hay fever estimate where there's no pollen forecast (all of NZ): a pollen season calendar times the weather. Warm, sunny, dry and breezy days raise it, rain clears it, and a sunny day after rain can bring a burst. Today shows Low, Moderate or High with the main reasons and the worst time of day. It's an estimate, not a measured count.
+- New "No symptoms today" button next to Pollen. After 30 reported days (at least 5 of each) the estimate fits itself to you.
+- Forecast check: how the pollen estimate did on the days you reported.
+- The season calendar is a plain file in the app (pollen_calendar.csv), so it's easy to adjust.
+- 4x2 widget on a folded phone: bigger day rows and the spare height shared out evenly, to match the unfolded look.
+
 ## 1.2 · Comfort and lead time
 - The app learns from your Chilly and Too warm taps: once there are 3 of a kind from the last year, where you usually feel it replaces the jacket feels-like and too-hot settings, and walks flag "Warm for you". Settings shows what it has learned and can switch it off.
 - Sources are now scored separately by how far ahead the forecast was made (up to 3 h, 3 to 6 h, 6 to 12 h, 12 to 24 h, 1 to 2 days), and the blend uses the weights for each hour's lead.
@@ -9,7 +16,6 @@ Each release adds a section at the top. The app shows the one matching the insta
 - Forecast check: "When forecasts settle" shows how far ahead each source got rain, temperature, wind and cloud right and then stayed right.
 - Forecast check: jacket calls scored 1, 3, 6 and 12 hours ahead.
 - Today: big changes since the morning, like "Rain at 3 pm up from 20% to 60% since 6 am".
-- 4x2 widget on a folded phone: bigger day rows and the spare height shared out evenly, to match the unfolded look.
 - Every forecast run is now kept for a week so these can be worked out. Older hours keep the latest forecast in each lead group.
 
 ## 1.1 · Harden

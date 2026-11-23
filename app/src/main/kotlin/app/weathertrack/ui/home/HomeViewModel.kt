@@ -59,6 +59,8 @@ data class HomeState(
     val comfort: List<String> = emptyList(),
     /** Big changes in the forecast for the coming hours since this morning. */
     val changes: List<app.weathertrack.core.sources.ForecastChange> = emptyList(),
+    /** Our own pollen estimate for today and tomorrow. */
+    val pollen: app.weathertrack.data.PollenView? = null,
 )
 
 class HomeViewModel(
@@ -238,6 +240,7 @@ class HomeViewModel(
                         app.weathertrack.core.comfort.Feeling.Kind.CHILLY -> "chilly"
                         app.weathertrack.core.comfort.Feeling.Kind.WARM -> "too warm"
                         app.weathertrack.core.comfort.Feeling.Kind.POLLEN -> "pollen"
+                        app.weathertrack.core.comfort.Feeling.Kind.NO_SYMPTOMS -> "no symptoms today"
                     }
                     _state.update { it.copy(reportMessage = "Thanks. Saved \"$word\" at ${Format.time(now, zone)}, with the weather then.") }
                     loadComfort(place)
@@ -252,6 +255,9 @@ class HomeViewModel(
             app.weathertrack.core.comfort.Comfort.summary(forecastCheck.feelings(place.id, System.currentTimeMillis() / 1000 - 3 * 365 * 86400L), zone)
         }.getOrDefault(emptyList())
         if (_state.value.place?.id == place.id) _state.update { it.copy(comfort = lines) }
+        val pollen = runCatching { forecastCheck.pollen(place, weather.cachedForecast(place)?.forecast) }
+            .onFailure { android.util.Log.w("Home", "Pollen estimate failed", it) }.getOrNull()
+        if (_state.value.place?.id == place.id) _state.update { it.copy(pollen = pollen) }
         // Keep the learned comfort points in settings, where the jacket call, alerts and walks read them.
         runCatching {
             val now = System.currentTimeMillis() / 1000

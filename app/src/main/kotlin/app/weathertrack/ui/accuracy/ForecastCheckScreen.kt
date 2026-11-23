@@ -178,6 +178,26 @@ fun ForecastCheckScreen(
                 }
             }
 
+            Section("Pollen estimate") {
+                val p = s.pollen
+                Text(
+                    "Our own estimate, not a measured pollen count: the season calendar times what the weather does to pollen " +
+                        "(warm, sunny, dry and breezy raise it; rain clears it). Checked against the weather that happened on days you tapped " +
+                        "Pollen or No symptoms; Moderate or High counts as calling symptoms. After ${app.weathertrack.core.pollen.Pollen.MIN_LABELS} " +
+                        "reported days (with at least ${app.weathertrack.core.pollen.Pollen.MIN_EACH} of each) it fits itself to you.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (p == null || p.score.total == 0) Text("No reported days yet. Tap Pollen or No symptoms today on Today.")
+                else {
+                    Text("Right on ${p.score.right} of ${p.score.total} reported days (${pct(p.score.share ?: 0.0)}). " +
+                        "On the ${p.score.symptomDays} days pollen bothered you it said Moderate or High on ${p.score.calledOnSymptomDays}.",
+                        style = MaterialTheme.typography.bodySmall)
+                    Text(if (p.personal) "Using your personal model." else
+                        "Using the general rules: ${p.reportedDays} of ${app.weathertrack.core.pollen.Pollen.MIN_LABELS} reported days so far.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
             Section("When forecasts settle") {
                 Text(
                     "For each hour of the last week: how far ahead every source's forecast became right and then stayed right " +
