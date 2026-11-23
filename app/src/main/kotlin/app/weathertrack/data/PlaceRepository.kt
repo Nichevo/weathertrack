@@ -20,6 +20,21 @@ class PlaceRepository(context: Context, private val dao: PlaceDao) {
 
     val places: Flow<List<PlaceEntity>> = dao.observeAll()
 
+    private val _sourcePlaces = MutableStateFlow(readSourcePlaces())
+    /** Places whose every forecast source is saved hourly (the selected place always is). */
+    val sourcePlaces: StateFlow<Set<Long>> = _sourcePlaces
+
+    private fun readSourcePlaces(): Set<Long> =
+        prefs.getStringSet(KEY_SOURCE_PLACES, emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet()
+
+    fun setSaveSources(id: Long, on: Boolean) {
+        val next = if (on) _sourcePlaces.value + id else _sourcePlaces.value - id
+        prefs.edit().putStringSet(KEY_SOURCE_PLACES, next.map { it.toString() }.toSet()).apply()
+        _sourcePlaces.value = next
+    }
+
+    fun savesSources(id: Long): Boolean = id == _selectedId.value || id in _sourcePlaces.value
+
     fun select(id: Long) {
         prefs.edit().putLong(KEY_SELECTED, id).apply()
         _selectedId.value = id
@@ -99,5 +114,6 @@ class PlaceRepository(context: Context, private val dao: PlaceDao) {
 
     companion object {
         private const val KEY_SELECTED = "selected_place_id"
+        private const val KEY_SOURCE_PLACES = "source_places"
     }
 }

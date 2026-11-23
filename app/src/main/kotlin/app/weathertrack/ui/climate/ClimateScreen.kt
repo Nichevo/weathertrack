@@ -65,7 +65,7 @@ private val monthYear = DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH)
 /** The Home tab: how the weather drives heating and cooling at home, over time. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ClimateScreen(onBack: (() -> Unit)? = null, vm: ClimateViewModel = viewModel(factory = ClimateViewModel.Factory)) {
+fun ClimateScreen(onBack: (() -> Unit)? = null, embedded: Boolean = false, vm: ClimateViewModel = viewModel(factory = ClimateViewModel.Factory)) {
     val s by vm.state.collectAsStateWithLifecycle()
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(vm::importEnergy)
@@ -73,7 +73,7 @@ fun ClimateScreen(onBack: (() -> Unit)? = null, vm: ClimateViewModel = viewModel
     val monthName = s.month.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(
+        if (!embedded) TopAppBar(
             title = { Text("Home · ${s.place?.name ?: ""}") },
             navigationIcon = { onBack?.let { b -> IconButton(onClick = b) { Icon(Icons.Filled.ArrowBack, "Back") } } },
             actions = {

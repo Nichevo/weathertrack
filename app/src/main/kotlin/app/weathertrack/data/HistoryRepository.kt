@@ -91,13 +91,18 @@ class HistoryRepository(
     /** Every year of one calendar month for a place, ready for the history calculations. */
     suspend fun month(placeId: Long, monthValue: Int): List<DailyObs> =
         dao.forMonth(placeId, "%02d".format(monthValue)).map {
-            DailyObs(LocalDate.parse(it.date), it.temperatureMax, it.temperatureMin, it.precipitationSum)
+            it.toObs()
         }
 
     /** Every stored day for a place. */
     suspend fun all(placeId: Long): List<DailyObs> = dao.all(placeId).map {
-        DailyObs(LocalDate.parse(it.date), it.temperatureMax, it.temperatureMin, it.precipitationSum)
+        it.toObs()
     }
+
+    private fun app.weathertrack.data.db.ObservedDayEntity.toObs() = DailyObs(
+        LocalDate.parse(date), temperatureMax, temperatureMin, precipitationSum,
+        sunshineHours = sunshineDuration?.let { it / 3600.0 }, gustMax = windGustsMax,
+    )
 
     companion object {
         const val ENDPOINT_ARCHIVE = "archive"

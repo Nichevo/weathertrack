@@ -15,6 +15,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
@@ -57,11 +68,16 @@ private val missDate = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)
 @Composable
 fun ForecastCheckScreen(
     onBack: () -> Unit = {},
+    /** Shown as a tab inside History: no app bar of its own (History's bar has the refresh button). */
+    embedded: Boolean = false,
     vm: ForecastCheckViewModel = viewModel(factory = ForecastCheckViewModel.Factory),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
+    val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val sectionY = remember { mutableStateMapOf<String, Int>() }
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(
+        if (!embedded) TopAppBar(
             title = { Text("Forecast check · ${s.place?.name ?: ""}") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") } },
             actions = {
@@ -69,8 +85,26 @@ fun ForecastCheckScreen(
             },
         )
         if (s.syncing) LinearProgressIndicator(Modifier.fillMaxWidth())
+        // Jump straight to a section instead of scrolling through them all.
+        val jumps = JUMPS.filter { sectionY.containsKey(it.second) }
+        if (jumps.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                AssistChip(onClick = { scope.launch { scroll.animateScrollTo(0) } }, label = { Text("Summary") })
+                jumps.forEach { (label, title) ->
+                    AssistChip(
+                        onClick = { scope.launch { scroll.animateScrollTo(sectionY[title] ?: 0) } },
+                        label = { Text(label) },
+                    )
+                }
+            }
+            HorizontalDivider()
+        }
+        CompositionLocalProvider(LocalSectionY provides sectionY) {
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            Modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             s.waitSeconds?.let { Text("Open-Meteo asked for a pause. Carrying on in $it s.", color = MaterialTheme.colorScheme.primary) }
@@ -333,8 +367,29 @@ fun ForecastCheckScreen(
                 )
             }
         }
+        }
     }
 }
+
+/** Chip label to section title, in page order. */
+private val JUMPS = listOf(
+    "Ranges" to "Next days: likely range",
+    "Ranges held?" to "Do the ranges hold?",
+    "Daily high" to "How far off the daily high was",
+    "Jacket" to "Jacket call by how far ahead",
+    "Links" to "How the weather links up here",
+    "Pollen" to "Pollen estimate",
+    "Settling" to "When forecasts settle",
+    "Cloud" to "Highs by kind of cloud",
+    "Wind & cloud" to "Wind and cloud",
+    "Rain %" to "When it said a chance of rain",
+    "Misses" to "Biggest misses",
+    "Your reports" to "Your reports",
+    "Data" to "Data behind this",
+)
+
+/** Where each section starts inside the scrolling column, so the chips can jump to it. */
+private val LocalSectionY = staticCompositionLocalOf<MutableMap<String, Int>?> { null }
 
 private fun pct(v: Double) = "${(v * 100).roundToInt()}%"
 
@@ -362,7 +417,8 @@ private fun StatCard(modifier: Modifier, title: String, value: String, note: Str
 
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
+    val positions = LocalSectionY.current
+    Card(Modifier.fillMaxWidth().onGloballyPositioned { c -> positions?.set(title, c.positionInParent().y.toInt()) }) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             content()
