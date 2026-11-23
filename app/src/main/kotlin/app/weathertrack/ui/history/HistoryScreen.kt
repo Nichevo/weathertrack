@@ -222,7 +222,7 @@ private fun PastWeather(s: HistoryState, vm: HistoryViewModel, list: LazyListSta
                     Title("$span, year on year")
                 }
                 item { ExploreTable(v) }
-                val tempMonth = s.span == ExploreSpan.MONTH && (v.measure == ExploreMeasure.HIGH || v.measure == ExploreMeasure.LOW)
+                val tempMonth = s.span == ExploreSpan.MONTH && v.measure in setOf(ExploreMeasure.HIGH, ExploreMeasure.LOW, ExploreMeasure.RAIN)
                 if (s.showDecades && tempMonth && s.decades.isNotEmpty()) {
                     // The low-to-high range for each decade, with total rain: warming shows as the bars sliding right.
                     item { Title("${s.month.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)} by decade") }
