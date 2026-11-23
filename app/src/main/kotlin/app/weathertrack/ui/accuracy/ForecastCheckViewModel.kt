@@ -67,6 +67,10 @@ data class ForecastCheckState(
     val jacketByLead: Map<Int, JacketScore> = emptyMap(),
     /** How far ahead each source's forecasts got it right and stayed right, over the last week. */
     val settled: List<app.weathertrack.core.sources.Settled> = emptyList(),
+    /** The pollen estimate's record on days you reported. */
+    val pollen: app.weathertrack.data.PollenView? = null,
+    /** Links between weather factors in what actually happened here, e.g. cloud and the high. */
+    val relations: List<app.weathertrack.core.accuracy.Relation> = emptyList(),
 )
 
 class ForecastCheckViewModel(
@@ -164,12 +168,14 @@ class ForecastCheckViewModel(
                 sun = app.weathertrack.core.accuracy.WindCloud.sunny(r, o, fromEpoch),
                 highByCloud = app.weathertrack.core.accuracy.WindCloud.highErrorsByRegime(r, o, zone, from),
                 jacketByLead = ForecastCheck.jacketByLead(iss, o, zone, from, st.jacketThresholds),
+                relations = app.weathertrack.core.accuracy.Relations.all(o, zone, from),
             )
         }
         val settled = runCatching {
             val weekObs = o.filter { it.time >= System.currentTimeMillis() / 1000 - 8 * 86400L }
             withContext(Dispatchers.Default) { sources.settled(place.id, weekObs) }
         }.getOrDefault(emptyList())
+        val pollen = runCatching { repo.pollen(place, weather.cachedForecast(place)?.forecast) }.getOrNull()
         _state.update {
             it.copy(
                 jacket = result.jacket, rainCalls = result.rainCalls, leads = result.leads, bands = result.bands,
@@ -177,7 +183,7 @@ class ForecastCheckViewModel(
                 firstActual = result.firstActual, tempFan = result.tempFan, rainFan = result.rainFan, reports = result.reports,
                 coverage = result.coverage, seasonal = result.seasonal,
                 windCloud = result.windCloud, sun = result.sun, highByCloud = result.highByCloud,
-                jacketByLead = result.jacketByLead, settled = settled,
+                jacketByLead = result.jacketByLead, settled = settled, pollen = pollen, relations = result.relations,
             )
         }
     }

@@ -172,7 +172,7 @@ fun HomeScreen(
             }
             if (forecast != null) {
                 state.tides?.let { t -> state.place?.let { p -> item { TideCard(t, zone, p.latitude, p.longitude) } } }
-                item { OutdoorCard(forecast, state.air, skinType, zone) }
+                item { OutdoorCard(forecast, state.air, skinType, zone, state.pollen) }
             }
             state.stored?.let { s ->
                 item {
@@ -233,6 +233,7 @@ private fun ReportRow(
             androidx.compose.material3.AssistChip(onClick = { onFeel(app.weathertrack.core.comfort.Feeling.Kind.CHILLY) }, label = { Text("🥶 Chilly") })
             androidx.compose.material3.AssistChip(onClick = { onFeel(app.weathertrack.core.comfort.Feeling.Kind.WARM) }, label = { Text("🥵 Too warm") })
             androidx.compose.material3.AssistChip(onClick = { onFeel(app.weathertrack.core.comfort.Feeling.Kind.POLLEN) }, label = { Text("🤧 Pollen") })
+            androidx.compose.material3.AssistChip(onClick = { onFeel(app.weathertrack.core.comfort.Feeling.Kind.NO_SYMPTOMS) }, label = { Text("🙂 No symptoms today") })
         }
         message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
         comfort.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }

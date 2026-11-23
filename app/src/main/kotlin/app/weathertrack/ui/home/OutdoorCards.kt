@@ -79,7 +79,7 @@ fun WarningsCard(warnings: List<Warning>, zone: ZoneId) {
 
 /** Sun, UV burn time, air quality and pollen, washing and garden: the small daily things. */
 @Composable
-fun OutdoorCard(f: Forecast, air: List<AirHour>, skinType: Int, zone: ZoneId) {
+fun OutdoorCard(f: Forecast, air: List<AirHour>, skinType: Int, zone: ZoneId, pollen: app.weathertrack.data.PollenView? = null) {
     val now = System.currentTimeMillis() / 1000
     val today = LocalDate.now(zone)
     val todayDay = f.daily.firstOrNull { it.date == today.toString() }
@@ -129,6 +129,12 @@ fun OutdoorCard(f: Forecast, air: List<AirHour>, skinType: Int, zone: ZoneId) {
                 Line("Air", "${a.category} (AQI ${a.now.europeanAqi?.roundToInt() ?: "–"}, PM2.5 ${a.now.pm25?.roundToInt() ?: "–"})" +
                     (worst?.let { ". ${Air.category(it.europeanAqi)} around ${Format.time(it.time, zone)}" } ?: ""))
                 if (a.pollen.isNotEmpty()) Line("Pollen", a.pollen.joinToString(", ") { (k, v) -> "$k $v" })
+            }
+            // Our own estimate (not a measured count): season calendar times the weather, fitted to your reports when there are enough.
+            pollen?.days?.firstOrNull()?.let { d ->
+                Line("Hay fever", app.weathertrack.core.pollen.Pollen.text(d) +
+                    (pollen.days.getOrNull(1)?.let { " Tomorrow ${it.level.label.lowercase()}." } ?: ""),
+                    if (d.level == app.weathertrack.core.pollen.PollenLevel.HIGH) MaterialTheme.colorScheme.error else null)
             }
 
             // Washing and garden.

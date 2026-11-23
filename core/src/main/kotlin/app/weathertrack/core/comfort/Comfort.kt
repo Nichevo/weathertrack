@@ -18,7 +18,9 @@ data class Feeling(
     val humidity: Double?,
 ) {
     enum class Kind(val key: String) {
-        CHILLY("chilly"), WARM("warm"), POLLEN("pollen");
+        CHILLY("chilly"), WARM("warm"), POLLEN("pollen"),
+        /** "No symptoms today": a day pollen didn't bother you, so the pollen model has both kinds of day. */
+        NO_SYMPTOMS("no_symptoms");
         companion object { fun of(key: String) = entries.firstOrNull { it.key == key } }
     }
 }

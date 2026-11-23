@@ -197,7 +197,9 @@ private fun WidgetContent(s: WidgetSnapshot?) {
             Spacer(GlanceModifier.height(4.dp))
             Badges(s)
             if (roomy) {
-                Spacer(GlanceModifier.height(4.dp))
+                // A tall widget (a folded phone's cover screen) splits the spare height around the hours
+                // instead of leaving one empty band above the days.
+                Spacer(GlanceModifier.defaultWeight())
                 TwoHourSteps(s, GlanceModifier.fillMaxWidth())
             } else if (tall) {
                 // Not much height: one line of times and temperatures (rain chance when it's likely).
@@ -206,15 +208,17 @@ private fun WidgetContent(s: WidgetSnapshot?) {
             }
         }
         Spacer(GlanceModifier.defaultWeight())
-        // The next four days in two rows of two, so each can use bigger text.
+        // The next four days in two rows of two, so each can use bigger text; bigger still when the
+        // widget is stacked and tall, to match the unfolded look.
         val days = nextDays(s)
+        val bigDays = roomy && !(wide && !tall)
         Column(GlanceModifier.fillMaxWidth().background(ColorProvider(Palette.chip)).cornerRadius(14.dp)
-            .padding(horizontal = 8.dp, vertical = 2.dp)) {
+            .padding(horizontal = 8.dp, vertical = if (bigDays) 4.dp else 2.dp)) {
             days.chunked(2).forEach { pair ->
                 Row(GlanceModifier.fillMaxWidth()) {
                     pair.forEachIndexed { i, d ->
                         if (i > 0) Spacer(GlanceModifier.width(12.dp))
-                        DayCell(d, GlanceModifier.defaultWeight())
+                        DayCell(d, GlanceModifier.defaultWeight(), big = bigDays)
                     }
                     if (pair.size == 1) Spacer(GlanceModifier.defaultWeight())
                 }
@@ -339,17 +343,18 @@ private fun nextDays(s: WidgetSnapshot): List<DayPoint> {
 }
 
 @Composable
-private fun DayCell(d: DayPoint, modifier: GlanceModifier) {
+private fun DayCell(d: DayPoint, modifier: GlanceModifier, big: Boolean = false) {
     val wet = (d.precipitationProbabilityMax ?: 0.0) >= 40
-    Row(modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(Format.day(d.date).substringBefore(' '), style = text(13, Palette.muted, bold = true), maxLines = 1)
+    val up = if (big) 2 else 0
+    Row(modifier.padding(vertical = if (big) 4.dp else 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(Format.day(d.date).substringBefore(' '), style = text(13 + up, Palette.muted, bold = true), maxLines = 1)
         Spacer(GlanceModifier.width(6.dp))
         Image(ImageProvider(iconFor(d.weatherCode, true)), contentDescription = WeatherCodes.describe(d.weatherCode),
-            modifier = GlanceModifier.size(17.dp))
+            modifier = GlanceModifier.size(if (big) 21.dp else 17.dp))
         Spacer(GlanceModifier.width(4.dp))
-        Text("${Format.temp(d.temperatureMax)}/${Format.temp(d.temperatureMin)}", style = text(14, bold = true), maxLines = 1)
+        Text("${Format.temp(d.temperatureMax)}/${Format.temp(d.temperatureMin)}", style = text(14 + up, bold = true), maxLines = 1)
         Spacer(GlanceModifier.defaultWeight())
-        Text(Format.pct(d.precipitationProbabilityMax), style = text(12, if (wet) Palette.rain else Palette.faint, bold = wet), maxLines = 1)
+        Text(Format.pct(d.precipitationProbabilityMax), style = text(12 + up, if (wet) Palette.rain else Palette.faint, bold = wet), maxLines = 1)
     }
 }
 

@@ -21,6 +21,14 @@ import java.io.IOException
  * hours) and what earlier model runs said about those hours (Previous Runs). Both are stored raw
  * first. The forecasts this app stored itself come from forecast_hour.
  */
+/** Today's and tomorrow's pollen estimate, its record on days you reported, and whether it's personal yet. */
+data class PollenView(
+    val days: List<app.weathertrack.core.pollen.PollenDay>,
+    val score: app.weathertrack.core.pollen.PollenScore,
+    val reportedDays: Int,
+    val personal: Boolean,
+)
+
 class ForecastCheckRepository(
     context: Context,
     private val db: AppDatabase,
@@ -29,6 +37,43 @@ class ForecastCheckRepository(
     private val dao = db.forecastCheckDao()
     private val rawDao = db.rawPullDao()
     private val prefs = context.getSharedPreferences("forecast_check", Context.MODE_PRIVATE)
+    private val pollenCalendar: List<app.weathertrack.core.pollen.SeasonMonth> by lazy {
+        runCatching { context.assets.open("pollen_calendar.csv").bufferedReader().use { app.weathertrack.core.pollen.Pollen.parseCalendar(it.readText()) } }
+            .getOrDefault(emptyList())
+    }
+
+    /**
+     * The pollen estimate for today and tomorrow, and how it has done on days you reported. Uses your
+     * own model once there are enough Pollen and No symptoms days here, otherwise the rules.
+     */
+    suspend fun pollen(place: PlaceEntity, forecast: app.weathertrack.core.model.Forecast?): PollenView {
+        val P = app.weathertrack.core.pollen.Pollen
+        val zone = runCatching { java.time.ZoneId.of(place.timezone) }.getOrDefault(java.time.ZoneId.systemDefault())
+        val now = System.currentTimeMillis() / 1000
+        val obs = observed(place.id, now - 400 * 86400L).map {
+            app.weathertrack.core.pollen.PollenHour(it.time, it.temperature, it.precipitation, null, it.windSpeed, it.cloudCover)
+        }
+        val labels = P.labels(feelings(place.id, now - 400 * 86400L)
+            .filter { it.kind == app.weathertrack.core.comfort.Feeling.Kind.POLLEN || it.kind == app.weathertrack.core.comfort.Feeling.Kind.NO_SYMPTOMS }
+            .map { it.time to (it.kind == app.weathertrack.core.comfort.Feeling.Kind.POLLEN) }, zone)
+        val examples = labels.mapNotNull { l ->
+            P.factors(P.season(pollenCalendar, l.date, place.latitude), obs, l.date, zone)?.let { it to l.symptoms }
+        }
+        val model = P.fit(examples)
+        // Past actuals have no humidity, so the personal model leaves it out of the forecast too.
+        val fc = forecast?.hourly.orEmpty().map {
+            app.weathertrack.core.pollen.PollenHour(it.time, it.temperature, it.precipitation, if (model == null) it.humidity else null, it.windSpeed, it.cloudCover)
+        }
+        val fcTimes = fc.map { it.time }.toSet()
+        val hours = (obs.filter { it.time !in fcTimes && it.time >= now - 3 * 86400L } + fc).sortedBy { it.time }
+        val today = java.time.LocalDate.now(zone)
+        val days = listOf(today, today.plusDays(1)).mapNotNull { d -> P.day(P.season(pollenCalendar, d, place.latitude), hours, d, zone, model) }
+        val scored = labels.mapNotNull { l ->
+            P.day(P.season(pollenCalendar, l.date, place.latitude), obs, l.date, zone, model)?.let { it to l.symptoms }
+        }
+        return PollenView(days, P.score(scored), labels.size, model != null)
+    }
+
 
     fun syncedRecently(placeId: Long): Boolean =
         System.currentTimeMillis() - prefs.getLong("synced_$placeId", 0L) < SYNC_EVERY_MS
