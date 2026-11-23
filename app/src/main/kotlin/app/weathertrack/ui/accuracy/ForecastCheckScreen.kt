@@ -171,10 +171,26 @@ fun ForecastCheckScreen(
                         "and checked against what happened. A call that's right 3 hours out is more use than one right only an hour out.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                JacketLeadBars(s.jacketByLead)
                 if (s.jacketByLead.values.all { it.decided == 0 }) Text("Builds up as forecasts are stored through the day.")
                 else s.jacketByLead.forEach { (lead, j) ->
                     Text("$lead h ahead: " + (j.share?.let { "right ${(it * 100).roundToInt()}%, ${j.right} of ${j.decided} windows" } ?: "no windows yet") +
                         if (j.maybes > 0) ", ${j.maybes} maybe" else "", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            Section("How the weather links up here") {
+                Text(
+                    "From the actual weather stored for this place in the chosen period. Each day is compared with normal for that " +
+                        "time of year (the 15 days around it), so the seasons don't count as a link. Daytime is 10 am to 4 pm; " +
+                        "overnight is 9 pm to 6 am.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (s.relations.isEmpty()) Text("Needs at least ${app.weathertrack.core.accuracy.Relations.MIN_DAYS} days of actuals with cloud and wind. Pick a longer period or sync.")
+                else {
+                    RelationsPicker(s.relations)
+                    Text("All links", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
+                    s.relations.sortedByDescending { kotlin.math.abs(it.r) }.forEach { Text(it.sentence(), style = MaterialTheme.typography.bodySmall) }
                 }
             }
 
@@ -209,6 +225,7 @@ fun ForecastCheckScreen(
                 if (s.settled.isEmpty()) Text("Needs a few days of hourly runs. Open Sources now and then, or let the app refresh in the background.")
                 s.settled.groupBy { it.variable }.forEach { (v, rows) ->
                     Text(v.label, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
+                    SettledBars(rows.sortedByDescending { it.medianLeadH })
                     SettledRow("Source", "Typical", "3 h", "6 h", "12 h", "24 h", header = true)
                     rows.sortedByDescending { it.medianLeadH }.forEach { r ->
                         SettledRow(app.weathertrack.core.sources.Sources.label(r.source), "${r.medianLeadH.roundToInt()} h",

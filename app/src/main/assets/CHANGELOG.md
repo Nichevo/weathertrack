@@ -6,6 +6,8 @@ Each release adds a section at the top. The app shows the one matching the insta
 - Our own hay fever estimate where there's no pollen forecast (all of NZ): a pollen season calendar times the weather. Warm, sunny, dry and breezy days raise it, rain clears it, and a sunny day after rain can bring a burst. Today shows Low, Moderate or High with the main reasons and the worst time of day. It's an estimate, not a measured count.
 - New "No symptoms today" button next to Pollen. After 30 reported days (at least 5 of each) the estimate fits itself to you.
 - Forecast check: how the pollen estimate did on the days you reported.
+- Forecast check: "How the weather links up here" works out from your own actuals how cloud, low cloud, sunshine, wind and rain move the day's high and the overnight low, with the season taken out. Each link has a scatter chart.
+- Forecast check: bar charts for jacket calls by how far ahead and for when each source's forecasts settle.
 - The season calendar is a plain file in the app (pollen_calendar.csv), so it's easy to adjust.
 - 4x2 widget on a folded phone: bigger day rows and the spare height shared out evenly, to match the unfolded look.
 
