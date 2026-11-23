@@ -9,6 +9,7 @@ Each release adds a section at the top. The app shows the one matching the insta
 - Forecast check: "When forecasts settle" shows how far ahead each source got rain, temperature, wind and cloud right and then stayed right.
 - Forecast check: jacket calls scored 1, 3, 6 and 12 hours ahead.
 - Today: big changes since the morning, like "Rain at 3 pm up from 20% to 60% since 6 am".
+- 4x2 widget on a folded phone: bigger day rows and the spare height shared out evenly, to match the unfolded look.
 - Every forecast run is now kept for a week so these can be worked out. Older hours keep the latest forecast in each lead group.
 
 ## 1.1 · Harden
