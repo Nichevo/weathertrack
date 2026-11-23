@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.weathertrack.core.history.DecadeStats
 import app.weathertrack.core.history.ExploreMeasure
 import app.weathertrack.core.history.ExploreSpan
 import app.weathertrack.core.history.ExploreView
@@ -221,7 +222,15 @@ private fun PastWeather(s: HistoryState, vm: HistoryViewModel, list: LazyListSta
                     Title("$span, year on year")
                 }
                 item { ExploreTable(v) }
-                if (s.showDecades && v.decades.isNotEmpty()) {
+                val tempMonth = s.span == ExploreSpan.MONTH && (v.measure == ExploreMeasure.HIGH || v.measure == ExploreMeasure.LOW)
+                if (s.showDecades && tempMonth && s.decades.isNotEmpty()) {
+                    // The low-to-high range for each decade, with total rain: warming shows as the bars sliding right.
+                    item { Title("${s.month.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)} by decade") }
+                    item { Note("Average daily low to high, and average total rain for the month. Complete months only.") }
+                    val lo = s.decades.mapNotNull { it.meanMin }.minOrNull() ?: 0.0
+                    val hi = s.decades.mapNotNull { it.meanMax }.maxOrNull() ?: 1.0
+                    items(s.decades) { d -> DecadeRange(d, lo, hi) }
+                } else if (s.showDecades && v.decades.isNotEmpty()) {
                     item { Title("By decade") }
                     item { Note("Average over the same days, years with at least 9 in 10 days stored.") }
                     val lo = v.decades.mapNotNull { it.value }.minOrNull() ?: 0.0
@@ -518,6 +527,32 @@ private fun DecadeBar(decade: Int, v: Double?, lo: Double, hi: Double, m: Explor
             drawRoundRect(JacketAmber, topLeft = Offset((wd - 4f).coerceAtLeast(0f), 0f), size = Size(4f, size.height))
         }
         Text(value(v, m), Modifier.width(76.dp), textAlign = TextAlign.End)
+    }
+}
+
+@Composable
+private fun DecadeRange(d: DecadeStats, lo: Double, hi: Double) {
+    val track = MaterialTheme.colorScheme.surfaceVariant
+    val bar = MaterialTheme.colorScheme.primary
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("${d.decadeStart}s", Modifier.width(52.dp), fontWeight = FontWeight.Medium)
+        Canvas(Modifier.weight(1f).height(14.dp)) {
+            val span = (hi - lo).takeIf { it > 0 } ?: 1.0
+            drawRoundRect(track, size = size, cornerRadius = CornerRadius(7.dp.toPx()))
+            val minV = d.meanMin ?: return@Canvas
+            val maxV = d.meanMax ?: return@Canvas
+            val x0 = ((minV - lo) / span * size.width).toFloat()
+            val x1 = ((maxV - lo) / span * size.width).toFloat()
+            drawRoundRect(
+                bar, topLeft = Offset(x0, 0f), size = Size((x1 - x0).coerceAtLeast(4f), size.height),
+                cornerRadius = CornerRadius(7.dp.toPx()),
+            )
+            // Amber tick at the high end makes warming trends easy to spot down the list.
+            drawRoundRect(JacketAmber, topLeft = Offset((x1 - 4f).coerceAtLeast(0f), 0f), size = Size(4f, size.height))
+        }
+        Text("${t(d.meanMin)}–${t(d.meanMax)}", Modifier.width(76.dp), textAlign = TextAlign.End)
+        Text(mm(d.meanMonthlyRain), Modifier.width(64.dp), textAlign = TextAlign.End,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

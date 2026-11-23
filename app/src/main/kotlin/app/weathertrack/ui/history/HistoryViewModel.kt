@@ -54,7 +54,7 @@ data class HistoryState(
     val span: ExploreSpan = ExploreSpan.MONTH,
     val showYears: Boolean = true,
     val showNormal: Boolean = true,
-    val showDecades: Boolean = false,
+    val showDecades: Boolean = true,
     val explore: ExploreView? = null,
 )
 
