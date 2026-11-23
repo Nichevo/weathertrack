@@ -76,12 +76,30 @@ object OpenMeteoUrls {
      * 15-minute rain and hourly weather codes for every point of a grid, in one request
      * (Open-Meteo answers multi-location requests with a JSON array).
      */
-    fun rainGrid(lats: List<Double>, lons: List<Double>, hours: Int = 6): String =
+    fun rainGrid(lats: List<Double>, lons: List<Double>, hours: Int = 6, layerHours: Int = 0): String =
         FORECAST_BASE +
-            "?latitude=${lats.joinToString(",") { coord(it) }}&longitude=${lons.joinToString(",") { coord(it) }}" +
+            "?latitude=${lats.joinToString(",") { coord(it) }}&longitude=${lons.joinToString(",") { coord(wrapLon(it)) }}" +
             "&minutely_15=precipitation&forecast_minutely_15=${hours * 4}&past_minutely_15=2" +
-            "&hourly=weather_code&forecast_hours=$hours&past_hours=1" +
-            "&timezone=GMT&timeformat=unixtime"
+            (if (layerHours > 0) "&hourly=weather_code,${MAP_LAYER_VARS.joinToString(",")}&forecast_hours=$layerHours"
+            else "&hourly=weather_code&forecast_hours=$hours") +
+            "&past_hours=1&timezone=GMT&timeformat=unixtime&wind_speed_unit=kmh"
+
+    /** Hourly variables the map's weather layers draw (cloud, wind, temperature, UV, humidity, fog). */
+    val MAP_LAYER_VARS = listOf(
+        "cloud_cover", "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high",
+        "wind_speed_10m", "wind_direction_10m", "wind_gusts_10m",
+        "temperature_2m", "apparent_temperature", "uv_index", "relative_humidity_2m", "visibility",
+    )
+
+    /** Sea-level pressure and wind over a wide grid, every hour, for the map's pressure lines. */
+    fun pressureGrid(lats: List<Double>, lons: List<Double>, hours: Int = 73): String =
+        FORECAST_BASE +
+            "?latitude=${lats.joinToString(",") { coord(it) }}&longitude=${lons.joinToString(",") { coord(wrapLon(it)) }}" +
+            "&hourly=pressure_msl,wind_speed_10m,wind_direction_10m&forecast_hours=$hours&past_hours=3" +
+            "&timezone=GMT&timeformat=unixtime&wind_speed_unit=kmh"
+
+    /** Longitude in -180..180, as Open-Meteo expects (map grids near the date line can run past 180). */
+    fun wrapLon(lon: Double): Double = ((lon + 180.0) % 360.0 + 360.0) % 360.0 - 180.0
 
     const val PREVIOUS_RUNS_BASE = "https://previous-runs-api.open-meteo.com/v1/forecast"
     /** Leads (days) fetched from Previous Runs for Forecast check. 0 is the latest run. */

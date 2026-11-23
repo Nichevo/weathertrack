@@ -238,6 +238,8 @@ object OpenMeteoParser {
             rainMm = items.map { it.obj("minutely_15")?.doubles("precipitation") ?: emptyList() },
             hourTimes = hourTimes,
             weatherCodes = items.map { o -> o.obj("hourly")?.doubles("weather_code")?.map { it?.toInt() } ?: emptyList() },
+            fields = first.obj("hourly")?.keys.orEmpty().filter { it != "time" && it != "weather_code" }
+                .associateWith { name -> items.map { it.obj("hourly")?.doubles(name) ?: emptyList() } },
         )
     }
 

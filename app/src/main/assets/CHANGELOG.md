@@ -2,6 +2,14 @@
 
 Each release adds a section at the top. The app shows the one matching the installed version.
 
+## 1.4 · Map layers
+- The map's title is now a menu: tap "Rain map ▾" to switch to cloud, wind, temperature, UV, humidity or fog. Each item says where its data comes from and whether it's live or a forecast.
+- Cloud splits into all, low, mid and high cloud. Wind shows speed or gusts with arrows. Temperature shows actual or feels like. Values are written on the map and the legend gives the figure at your spot.
+- The weather layers step hour by hour through the next 24 hours, and Thunder risk can sit on top of any of them.
+- Satellite: live Himawari infrared images from NASA, every 10 minutes for the last 2 hours, over the whole country.
+- Pressure and storms: sea-level pressure lines every 4 hPa with highs and lows, wind colours, and any active tropical cyclone's track and forecast cone (from GDACS) for 3 days ahead. A card says how far away the nearest cyclone is.
+- Weather fronts aren't drawn: they're only published as finished chart images under copyright, so the pressure lines and lows stand in for them.
+
 ## 1.3 · Pollen and folded widget
 - Our own hay fever estimate where there's no pollen forecast (all of NZ): a pollen season calendar times the weather. Warm, sunny, dry and breezy days raise it, rain clears it, and a sunny day after rain can bring a burst. Today shows Low, Moderate or High with the main reasons and the worst time of day. It's an estimate, not a measured count.
 - New "No symptoms today" button next to Pollen. After 30 reported days (at least 5 of each) the estimate fits itself to you.
