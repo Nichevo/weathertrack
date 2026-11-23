@@ -1,6 +1,27 @@
 package app.weathertrack.ui.sources
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,6 +67,10 @@ import app.weathertrack.core.sources.DayScore
 import app.weathertrack.core.sources.Lead
 import app.weathertrack.core.sources.PastHour
 import app.weathertrack.core.sources.Sources
+import app.weathertrack.core.sources.Settled
+import app.weathertrack.core.sources.SourceScore
+import app.weathertrack.core.sources.SourceWeight
+import app.weathertrack.core.sources.Variable
 import androidx.compose.material3.TextButton
 import app.weathertrack.data.ForecastCheckRepository
 import app.weathertrack.data.PlaceRepository
@@ -59,9 +84,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-data class SourcesState(val place: PlaceEntity? = null, val view: SourceView? = null, val loading: Boolean = false)
+data class SourcesState(
+    val place: PlaceEntity? = null,
+    val view: SourceView? = null,
+    val loading: Boolean = false,
+    /** How far ahead each source's forecasts settled over the last week. */
+    val settled: List<Settled> = emptyList(),
+)
 
 class SourcesViewModel(
     private val sources: SourceRepository,
@@ -87,8 +120,14 @@ class SourcesViewModel(
             try {
                 runCatching { sources.refresh(place, weather.cachedForecast(place), if (force) "manual" else "sources", force) }
                 val from = System.currentTimeMillis() / 1000 - 60 * 86400L
-                val view = runCatching { sources.view(place.id, Format.zone(place.timezone), check.observed(place.id, from), check.reports(place.id, from)) }.getOrNull()
+                val obs = runCatching { check.observed(place.id, from) }.getOrDefault(emptyList())
+                val view = runCatching { sources.view(place.id, Format.zone(place.timezone), obs, check.reports(place.id, from)) }.getOrNull()
                 if (mine == loads) _state.update { it.copy(view = view) }
+                val weekFrom = System.currentTimeMillis() / 1000 - 8 * 86400L
+                val settled = runCatching {
+                    withContext(Dispatchers.Default) { sources.settled(place.id, obs.filter { it.time >= weekFrom }) }
+                }.getOrDefault(emptyList())
+                if (mine == loads) _state.update { it.copy(settled = settled) }
             } finally {
                 if (mine == loads) _state.update { it.copy(loading = false) }
             }
@@ -105,23 +144,137 @@ class SourcesViewModel(
     }
 }
 
+
 private val Rain = Color(0xFF2F7DD1)
 private val Cloud = Color(0xFF78909C)
+private val Ink = Color(0xFF1B1B1F)
 
-/** What the side-by-side grid and the past tables show. */
-private enum class Measure(val label: String) { RAIN("Rain chance"), TEMP("Temperature"), WIND("Wind"), CLOUD("Cloud") }
+/** What the whole page shows: one switch at the top drives every section. */
+private enum class Measure(val label: String, val variable: Variable) {
+    RAIN("Rain", Variable.RAIN), TEMP("Temp", Variable.TEMP), WIND("Wind", Variable.WIND), CLOUD("Cloud", Variable.CLOUD)
+}
+
+/** A score for [m]: share right for rain, mean miss for the rest. */
+private fun metric(sc: SourceScore?, m: Measure): Double? = when (m) {
+    Measure.RAIN -> sc?.wetDryRight
+    Measure.TEMP -> sc?.tempMae
+    Measure.WIND -> sc?.windMae
+    Measure.CLOUD -> sc?.cloudMae
+}
+
+private fun hoursOf(sc: SourceScore?, m: Measure): Int = when (m) {
+    Measure.RAIN -> sc?.rainHours?.takeIf { it > 0 } ?: sc?.hours ?: 0
+    Measure.TEMP -> sc?.tempHours?.takeIf { it > 0 } ?: sc?.hours ?: 0
+    Measure.WIND -> sc?.windHours ?: 0
+    Measure.CLOUD -> sc?.cloudHours ?: 0
+}
+
+private fun weightOf(w: SourceWeight?, m: Measure): Double = when (m) {
+    Measure.RAIN -> w?.rain
+    Measure.TEMP -> w?.temp
+    Measure.WIND -> w?.wind
+    Measure.CLOUD -> w?.cloud
+} ?: 0.0
+
+/** 0 (poor) to 1 (good) for colouring a score. */
+private fun goodness(v: Double, m: Measure): Double = when (m) {
+    Measure.RAIN -> (v - 0.55) / 0.40
+    Measure.TEMP -> 1 - (v - 0.5) / 2.5
+    Measure.WIND -> 1 - (v - 3.0) / 10.0
+    Measure.CLOUD -> 1 - (v - 8.0) / 35.0
+}.coerceIn(0.0, 1.0)
+
+private fun fmt(v: Double?, m: Measure): String = when {
+    v == null -> "–"
+    m == Measure.RAIN -> "${(v * 100).roundToInt()}%"
+    m == Measure.TEMP -> String.format(java.util.Locale.US, "%.1f°", v)
+    else -> "${v.roundToInt()}"
+}
+
+private fun scoreName(m: Measure): String = when (m) {
+    Measure.RAIN -> "Rain/dry right"
+    Measure.TEMP -> "Temp off by"
+    Measure.WIND -> "Wind off by"
+    Measure.CLOUD -> "Cloud off by"
+}
+
+private fun scoreNote(m: Measure): String = when (m) {
+    Measure.RAIN -> "Share of hours where rain or no rain was called right."
+    Measure.TEMP -> "Average temperature miss in °C."
+    Measure.WIND -> "Average wind speed miss in km/h."
+    Measure.CLOUD -> "Average cloud cover miss in percentage points."
+}
+
+/** Fewer hours than this checked: the cell is faded so thin evidence doesn't read as firm. */
+private const val THIN_HOURS = 24
+
+private val HeatStops = listOf(
+    0.0 to Color(0xFFD73027), 0.25 to Color(0xFFF48C43), 0.5 to Color(0xFFFAE178), 0.75 to Color(0xFF96CD6E), 1.0 to Color(0xFF1E9650),
+)
+
+/** A smooth poor-to-good colour: red, orange, yellow, light green, green. */
+private fun heat(g: Double): Color {
+    val x = g.coerceIn(0.0, 1.0)
+    val (a, b) = HeatStops.zipWithNext().first { x <= it.second.first }
+    return lerp(a.second, b.second, ((x - a.first) / (b.first - a.first)).toFloat())
+}
+
+private fun heatText(g: Double): Color = if (g < 0.12 || g > 0.9) Color.White else Ink
+
+/** The clock times a lead group covers if a forecast were made [now]. */
+private class Windows(now: Long, private val zone: java.time.ZoneId) {
+    private val hourStart = now - now % 3600
+    private val today = java.time.Instant.ofEpochSecond(now).atZone(zone).toLocalDate()
+    fun start(l: Lead): Long = hourStart + (l.minH - 1) * 3600L
+    fun end(l: Lead): Long = hourStart + l.maxH * 3600L
+
+    private fun clock(t: Long, compact: Boolean): String {
+        val z = java.time.Instant.ofEpochSecond(t).atZone(zone)
+        val h = z.hour % 12
+        val time = (if (h == 0) "12" else "$h") + (if (compact) "" else " ") + (if (z.hour < 12) "am" else "pm")
+        return if (z.toLocalDate() == today) time
+        else z.format(java.time.format.DateTimeFormatter.ofPattern("EEE", java.util.Locale.ENGLISH)) + " " + time
+    }
+
+    /** "7–10 am", "7 pm–Tue 7 am". */
+    fun range(l: Lead): String {
+        val a = clock(start(l), false).split(' '); val b = clock(end(l), false)
+        val bParts = b.split(' ')
+        // Same day and same half of the day: "7–10 am" rather than "7 am–10 am".
+        return if (a.size == 2 && bParts.size == 2 && a[1] == bParts[1]) "${a[0]}–$b" else "${a.joinToString(" ")}–$b"
+    }
+
+    /** "to 10am", "Tue 7am+". */
+    fun short(l: Lead): String = if (l == Lead.NEXT_DAY) clock(start(l), true) + "+" else "to " + clock(end(l), true)
+}
+
+/** "≤3 h", "6–12 h", "1–2 days". */
+private fun hoursLabel(l: Lead): String = when (l) {
+    Lead.SOON -> "≤3 h"
+    Lead.NEXT_DAY -> "1–2 days"
+    else -> "${l.minH - 1}–${l.maxH} h"
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SourcesScreen(vm: SourcesViewModel = viewModel(factory = SourcesViewModel.Factory)) {
     val s by vm.state.collectAsStateWithLifecycle()
     var measure by remember { mutableStateOf(Measure.RAIN) }
+    var lead by remember { mutableStateOf<Lead?>(Lead.HALF_DAY) }
+    var picked by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("Sources" + (s.place?.let { " · ${it.name}" } ?: "")) },
             actions = { IconButton(onClick = { vm.load(force = true) }) { Icon(Icons.Filled.Refresh, "Refresh") } },
         )
         if (s.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        // Pinned above the scroll: picks what every section shows.
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+            Measure.entries.forEachIndexed { i, m ->
+                SegmentedButton(selected = measure == m, onClick = { measure = m },
+                    shape = SegmentedButtonDefaults.itemShape(i, Measure.entries.size)) { Text(m.label) }
+            }
+        }
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -132,65 +285,109 @@ fun SourcesScreen(vm: SourcesViewModel = viewModel(factory = SourcesViewModel.Fa
                 Text(if (s.loading) "Getting every source…" else "No sources yet. Tap refresh.")
                 return@Column
             }
-            Text("Next 24 hours, side by side", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Measure.entries.forEach { m -> FilterChip(selected = measure == m, onClick = { measure = m }, label = { Text(m.label) }) }
-            }
+            val now = System.currentTimeMillis() / 1000
+            val win = remember(now / 3600, zone) { Windows(now, zone) }
+            val source = picked ?: v.weights.maxByOrNull { weightOf(it, measure) }?.source
+
+            Heading("Next 24 hours, side by side", top = false)
             Grid(v, zone, measure)
-            if (measure == Measure.WIND) Text("Wind speed in km/h.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (measure == Measure.CLOUD) Text("Total cloud cover in %. Darker is cloudier.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                "Single-run models only say rain or no rain, so their chance is shown as about 70–90% when they rain and 5% when dry. " +
-                    "Ensembles give a real chance: the share of their runs with rain.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Note(when (measure) {
+                Measure.RAIN -> "Rain chance %. Darker blue is more likely. Single-run models only say rain or no rain, so their chance shows as about 70–90% " +
+                    "when they rain and 5% when dry; ensembles give a real chance, the share of their runs with rain."
+                Measure.TEMP -> "Temperature in °C."
+                Measure.WIND -> "Wind speed in km/h."
+                Measure.CLOUD -> "Total cloud cover in %. Darker is cloudier."
+            })
 
-            Text("How each has done here", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 8.dp))
-            Text(
-                "Overall: forecasts made 1 to 30 hours ahead, checked against what happened at your spot (Open-Meteo's analysis) " +
-                    "and against your Raining/Dry reports. Rain and temperature are blended separately. Temperature weights settle " +
-                    "after a couple of days; rain weights stay near equal until about a dozen wet hours or reports, and judge wet and dry hours equally.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            val scores = v.scores.associateBy { it.source }
-            ScoreRow("Source", "Rain wt", "Wet hrs", "Wet/dry", "Temp wt", "Temp ±", "Reports", header = true)
-            v.weights.forEach { w ->
-                val sc = scores[w.source]
-                ScoreRow(
-                    Sources.label(w.source), "${(w.rain * 100).roundToInt()}%", "${sc?.wetHours ?: 0}",
-                    sc?.wetDryRight?.let { "${(it * 100).roundToInt()}%" } ?: "–",
-                    "${(w.temp * 100).roundToInt()}%",
-                    sc?.tempMae?.let { String.format(java.util.Locale.US, "%.1f°", it) } ?: "–",
-                    sc?.takeIf { it.reportsTotal > 0 }?.let { "${it.reportsRight}/${it.reportsTotal}" } ?: "–",
-                )
-            }
-            Text("Wind and cloud", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 8.dp))
-            Text(
-                "Weighted on their own records too: wind speed miss in km/h and cloud cover miss in percentage points, " +
-                    "settling after a couple of days of hours.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            ScoreRow("Source", "Wind wt", "Wind ±", "Hours", "Cloud wt", "Cloud ±", "Hours", header = true)
-            v.weights.sortedByDescending { it.wind }.forEach { w ->
-                val sc = scores[w.source]
-                ScoreRow(
-                    Sources.label(w.source), "${(w.wind * 100).roundToInt()}%",
-                    sc?.windMae?.let { "${it.roundToInt()}" } ?: "–", "${sc?.windHours ?: 0}",
-                    "${(w.cloud * 100).roundToInt()}%",
-                    sc?.cloudMae?.let { "${it.roundToInt()}%" } ?: "–", "${sc?.cloudHours ?: 0}",
-                )
-            }
-            LeadSection(v)
-            PastSection(v, zone)
+            BlendSection(v, win, measure, now, zone)
+            MatrixSection(v, win, measure, lead) { lead = it }
+            DetailSection(v, win, measure, lead, source, onLead = { lead = it }, onPick = { picked = it })
+            ChartSection(v, measure, source)
+            SettleSection(s.settled, measure)
+            PastSection(v, zone, measure)
 
-            Text(
-                "Rain wt and Temp wt are each source's share of the blend. Sources: Open-Meteo (ECMWF, NOAA GFS, DWD ICON, UK Met Office, GEM, JMA, Météo-France, CMA, " +
+            Note(
+                "Sources: Open-Meteo (ECMWF, NOAA GFS, DWD ICON, UK Met Office, GEM, JMA, Météo-France, CMA, " +
                     "and the ECMWF, GFS and ICON ensembles) and MET Norway (CC BY 4.0). MetService has no free forecast feed, so it isn't included.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+@Composable
+private fun Heading(text: String, top: Boolean = true) {
+    Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+        modifier = if (top) Modifier.padding(top = 10.dp) else Modifier)
+}
+
+@Composable
+private fun SubHeading(text: String) {
+    Text(text, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
+}
+
+@Composable
+private fun Note(text: String) {
+    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun HeatLegend(poor: String = "Poor", good: String = "Good") {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(poor, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Canvas(Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(4.dp))) {
+            val n = 40
+            for (i in 0 until n) drawRect(heat(i / (n - 1.0)), Offset(size.width * i / n, 0f), Size(size.width / n + 1, size.height))
+        }
+        Text(good, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** A coloured score cell; [thin] fades it when few hours back it. */
+@Composable
+private fun HeatCell(text: String, g: Double?, modifier: Modifier, thin: Boolean = false, bold: Boolean = false) {
+    val bg = g?.let { heat(it).copy(alpha = if (thin) 0.4f else 1f) } ?: Color.Transparent
+    val fg = when {
+        g == null || thin -> MaterialTheme.colorScheme.onSurface
+        else -> heatText(g)
+    }
+    Box(
+        modifier.height(28.dp).padding(1.dp).clip(RoundedCornerShape(4.dp)).background(bg)
+            .then(if (thin && g != null) Modifier.border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), RoundedCornerShape(4.dp)) else Modifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, style = MaterialTheme.typography.bodySmall, color = fg, maxLines = 1,
+            fontWeight = if (bold) FontWeight.SemiBold else FontWeight.Normal)
+    }
+}
+
+@Composable
+private fun RowScope.NameCell(text: String, weight: Float = 2.2f, bold: Boolean = false) {
+    Text(text, Modifier.weight(weight).padding(end = 4.dp), style = MaterialTheme.typography.bodySmall, maxLines = 1,
+        fontWeight = if (bold) FontWeight.SemiBold else FontWeight.Normal)
+}
+
+@Composable
+private fun RowScope.HeadCell(text: String, sub: String? = null, weight: Float = 1f, selected: Boolean = false, onClick: (() -> Unit)? = null) {
+    Column(
+        Modifier.weight(weight).clip(RoundedCornerShape(4.dp))
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(vertical = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(text, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, maxLines = 2)
+        if (sub != null) Text(sub, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 2)
+    }
+}
+
+/** A share of the blend as a bar with its percentage. */
+@Composable
+private fun RowScope.WeightCell(w: Double, weight: Float = 1.6f, scale: Float = 1f) {
+    Row(Modifier.weight(weight), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width((w * 120 * scale).coerceIn(2.0, 60.0).dp).height(7.dp).clip(RoundedCornerShape(3.dp))
+            .background(MaterialTheme.colorScheme.primary))
+        Spacer(Modifier.width(4.dp))
+        Text("${(w * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall, maxLines = 1)
     }
 }
 
@@ -201,14 +398,28 @@ private fun Grid(v: SourceView, zone: java.time.ZoneId, measure: Measure) {
     val bySource = v.latest.groupBy { it.source }.mapValues { (_, h) -> h.associateBy { it.time } }
     val order = v.weights.map { it.source }.filter { it in bySource }
     val blend = v.blend.associateBy { it.time }
+    val today = java.time.Instant.ofEpochSecond(now).atZone(zone).toLocalDate()
+    fun dayOf(t: Long) = java.time.Instant.ofEpochSecond(t).atZone(zone).toLocalDate()
     Row(Modifier.horizontalScroll(rememberScrollState())) {
         Column {
+            Box(Modifier.width(120.dp).height(22.dp))
             Cell("", 120, bold = true)
             Cell("Blend", 120, bold = true)
             order.forEach { Cell(Sources.label(it), 120) }
         }
-        times.forEach { t ->
+        times.forEachIndexed { i, t ->
             Column {
+                // Day band: shown on the first column of each day.
+                val day = dayOf(t)
+                val first = i == 0 || dayOf(times[i - 1]) != day
+                Box(Modifier.width(48.dp).height(22.dp)
+                    .background(if (day == today) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                    contentAlignment = Alignment.CenterStart) {
+                    if (first) Text(
+                        if (day == today) "Today" else day.format(java.time.format.DateTimeFormatter.ofPattern("EEE d", java.util.Locale.ENGLISH)),
+                        Modifier.padding(start = 4.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                    )
+                }
                 Cell(Format.hour(t, zone).replace(" ", "").lowercase(), 48, bold = true, center = true)
                 val b = blend[t]
                 when (measure) {
@@ -261,106 +472,277 @@ private fun CloudCell(cover: Double?, bold: Boolean = false) {
     }
 }
 
-/** Each source's record and blend weights for one lead group at a time. */
+/** How the blend is put together, and which lead window each upcoming hour uses right now. */
 @Composable
-private fun LeadSection(v: SourceView) {
-    if (v.leadWeights.isEmpty()) return
-    var lead by remember { mutableStateOf(Lead.SOON) }
-    Text("By how far ahead", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(top = 8.dp))
-    Text(
-        "A source can be good a day out and poor in the last few hours, or the other way round, so each lead has its own " +
-            "record. The blend uses these for each hour by how far ahead it is, leaning on the overall weights until a lead has a record.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Lead.entries.forEach { l -> FilterChip(selected = lead == l, onClick = { lead = l }, label = { Text(l.label) }) }
-    }
-    val scores = v.leadScores[lead].orEmpty().associateBy { it.source }
-    ScoreRow("Source", "Rain wt", "Wet/dry", "Temp wt", "Temp ±", "Wind ±", "Cloud ±", header = true)
-    v.leadWeights[lead].orEmpty().forEach { w ->
-        val sc = scores[w.source]
-        ScoreRow(
-            Sources.label(w.source), "${(w.rain * 100).roundToInt()}%",
-            sc?.wetDryRight?.let { "${(it * 100).roundToInt()}%" } ?: "–",
-            "${(w.temp * 100).roundToInt()}%",
-            sc?.tempMae?.let { String.format(java.util.Locale.US, "%.1f°", it) } ?: "–",
-            sc?.windMae?.let { "${it.roundToInt()}" } ?: "–",
-            sc?.cloudMae?.let { "${it.roundToInt()}%" } ?: "–",
+private fun BlendSection(v: SourceView, win: Windows, measure: Measure, now: Long, zone: java.time.ZoneId) {
+    Heading("How the blend works")
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Text(
+            "The blend is a weighted average of every source. Weights come from how each has done here, checked against what " +
+                "happened at your spot and your Raining/Dry reports, and are worked out separately for rain, temperature, wind and cloud, " +
+                "and for each window of how far ahead. Temperature, wind and cloud weights settle after a couple of days; rain weights stay " +
+                "near equal until about a dozen wet hours or reports, and judge wet and dry hours equally.",
+            Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall,
         )
     }
-    val hours = scores.values.maxOfOrNull { it.hours } ?: 0
-    Text("Up to $hours hours checked at this lead.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-}
-
-@Composable
-private fun ScoreRow(a: String, b: String, c: String, d: String, e: String, f: String, g: String, header: Boolean = false) {
-    val w = if (header) FontWeight.SemiBold else FontWeight.Normal
-    Row(Modifier.fillMaxWidth()) {
-        Text(a, Modifier.weight(2.2f), style = MaterialTheme.typography.bodySmall, fontWeight = w, maxLines = 1)
-        listOf(b, c, d, e, f, g).forEach {
-            Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, fontWeight = w, textAlign = TextAlign.End, maxLines = 1)
+    Note("Which window each upcoming hour falls in, from now:")
+    val shades = listOf(0.25f, 0.4f, 0.6f, 0.8f, 1f)
+    val primary = MaterialTheme.colorScheme.primary
+    Row(Modifier.fillMaxWidth().height(42.dp).clip(RoundedCornerShape(6.dp))) {
+        Lead.entries.forEachIndexed { i, l ->
+            val bg = primary.copy(alpha = shades[i])
+            Column(
+                Modifier.weight(listOf(5f, 5f, 7f, 10f, 12f)[i]).fillMaxSize().background(bg).padding(horizontal = 2.dp),
+                verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                val fg = if (i < 2) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary
+                Text(hoursLabel(l), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = fg, maxLines = 1)
+                Text(win.range(l), style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = fg, maxLines = 1,
+                    textAlign = TextAlign.Center)
+            }
         }
     }
+    // A worked example: an hour in the 6-12 h window, and the source it leans on most.
+    val example = v.blend.firstOrNull { Lead.of((it.time - now) / 3600) == Lead.HALF_DAY }
+    val top = v.leadWeights[Lead.HALF_DAY].orEmpty().maxByOrNull { weightOf(it, measure) }
+    if (example != null && top != null) {
+        val what = when (measure) { Measure.RAIN -> "rain chance"; Measure.TEMP -> "temperature"; Measure.WIND -> "wind"; Measure.CLOUD -> "cloud cover" }
+        Text(buildAnnotatedString {
+            append("For example, the ${Format.time(example.time, zone)} $what uses the ")
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append("6–12 h") }
+            append(" weights, where ")
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(Sources.label(top.source)) }
+            append(" counts most (${(weightOf(top, measure) * 100).roundToInt()}%).")
+        }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Every source against every lead window, coloured poor to good. Tapping a column picks it for the detail below. */
+@Composable
+private fun MatrixSection(v: SourceView, win: Windows, measure: Measure, lead: Lead?, onLead: (Lead) -> Unit) {
+    if (v.leadScores.isEmpty()) return
+    Heading("Accuracy by how far ahead")
+    Note("${scoreNote(measure)} Columns are how far ahead the forecast was made, with the clock times that window covers now. " +
+        "Faded cells have under $THIN_HOURS hours checked. Tap a column for its detail.")
+    val byLead = Lead.entries.associateWith { l -> v.leadScores[l].orEmpty().associateBy { it.source } }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+        NameCell("Source", bold = true)
+        Lead.entries.forEach { l -> HeadCell(hoursLabel(l), win.short(l), selected = lead == l) { onLead(l) } }
+    }
+    v.weights.map { it.source }.forEach { src ->
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            NameCell(Sources.label(src))
+            Lead.entries.forEach { l ->
+                val sc = byLead[l]?.get(src)
+                val m = metric(sc, measure)
+                HeatCell(fmt(m, measure).removeSuffix("%"), m?.let { goodness(it, measure) }, Modifier.weight(1f),
+                    thin = hoursOf(sc, measure) < THIN_HOURS)
+            }
+        }
+    }
+    HeatLegend()
+}
+
+/** One lead window (or all of them) in full: weights as bars, the score, hours and reports. */
+@Composable
+private fun DetailSection(
+    v: SourceView, win: Windows, measure: Measure, lead: Lead?, picked: String?,
+    onLead: (Lead?) -> Unit, onPick: (String) -> Unit,
+) {
+    Heading("Detail by window")
+    Note("Pick how far ahead. Each window shows the clock times it covers if the forecast were made now. Tap a source to follow it in the chart below.")
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(selected = lead == null, onClick = { onLead(null) }, label = {
+            Column { Text("All windows"); Text("1–30 h ahead", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        })
+        Lead.entries.forEach { l ->
+            FilterChip(selected = lead == l, onClick = { onLead(l) }, label = {
+                Column { Text(win.range(l)); Text("${hoursLabel(l)} ahead", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            })
+        }
+    }
+    val weights = (if (lead == null) v.weights else v.leadWeights[lead].orEmpty()).sortedByDescending { weightOf(it, measure) }
+    val scores = (if (lead == null) v.scores else v.leadScores[lead].orEmpty()).associateBy { it.source }
+    if (weights.isEmpty()) { Note("Nothing checked in this window yet."); return }
+    val top = weights.take(3).joinToString(", ") { Sources.label(it.source) }
+    val what = when (measure) { Measure.RAIN -> "Rain"; Measure.TEMP -> "Temperature"; Measure.WIND -> "Wind"; Measure.CLOUD -> "Cloud" }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Text(
+            if (lead == null) "$what overall leans most on $top."
+            else "$what for ${win.range(lead)} (${hoursLabel(lead)} ahead) leans most on $top.",
+            Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium,
+        )
+    }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+        NameCell("Source", bold = true)
+        HeadCell("Share of blend", weight = 1.6f)
+        HeadCell(scoreName(measure), weight = 1.1f)
+        HeadCell(if (measure == Measure.RAIN) "Wet hrs" else "Hours")
+        if (measure == Measure.RAIN) HeadCell("Your reports")
+    }
+    weights.forEach { w ->
+        val sc = scores[w.source]
+        val m = metric(sc, measure)
+        val sel = w.source == picked
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
+                .background(if (sel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                .clickable { onPick(w.source) },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            NameCell(Sources.label(w.source), bold = sel)
+            WeightCell(weightOf(w, measure))
+            HeatCell(fmt(m, measure), m?.let { goodness(it, measure) }, Modifier.weight(1.1f), thin = hoursOf(sc, measure) < THIN_HOURS)
+            Text(if (measure == Measure.RAIN) "${sc?.wetHours ?: 0}" else "${hoursOf(sc, measure)}", Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+            if (measure == Measure.RAIN) Text(sc?.takeIf { it.reportsTotal > 0 }?.let { "${it.reportsRight}/${it.reportsTotal}" } ?: "–",
+                Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+        }
+    }
+    HeatLegend()
+    val hours = scores.values.maxOfOrNull { hoursOf(it, measure) } ?: 0
+    Note("Up to $hours hours checked${if (lead == null) " over the last 60 days" else " in this window"}. " +
+        if (lead == null) "Overall weights cover forecasts made 1 to 30 hours ahead; a window leans on them until it has its own record." else "")
+
+    SubHeading("Share of blend, every window")
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+        NameCell("Source", bold = true)
+        Lead.entries.forEach { l -> HeadCell(hoursLabel(l), win.short(l)) }
+    }
+    val primary = MaterialTheme.colorScheme.primary
+    v.weights.sortedByDescending { weightOf(it, measure) }.forEach { pooled ->
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            NameCell(Sources.label(pooled.source))
+            Lead.entries.forEach { l ->
+                val w = weightOf(v.leadWeights[l]?.firstOrNull { it.source == pooled.source }, measure)
+                val a = (0.08 + w * 3).coerceAtMost(1.0).toFloat()
+                Box(Modifier.weight(1f).height(26.dp).padding(1.dp).clip(RoundedCornerShape(4.dp)).background(primary.copy(alpha = a)),
+                    contentAlignment = Alignment.Center) {
+                    Text("${(w * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall,
+                        color = if (a > 0.6f) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+                }
+            }
+        }
+    }
+}
+
+/** Each source's score across lead windows as lines, with the picked one highlighted. Up is always better. */
+@Composable
+private fun ChartSection(v: SourceView, measure: Measure, picked: String?) {
+    if (v.leadScores.isEmpty()) return
+    Heading("How right, by how far ahead")
+    Note("Each line is a source, from 1–2 days ahead on the left to the last 3 hours on the right. Higher is better. " +
+        "Tap a source in the detail table to highlight it.")
+    val leads = Lead.entries.reversed()
+    val series = v.weights.map { it.source }.associateWith { src ->
+        leads.map { l -> v.leadScores[l]?.firstOrNull { it.source == src }?.let { sc -> metric(sc, measure)?.takeIf { hoursOf(sc, measure) > 0 } } }
+    }
+    val all = series.values.flatten().filterNotNull()
+    if (all.isEmpty()) { Note("Lines appear once forecasts at each lead have been checked."); return }
+    val better = measure == Measure.RAIN
+    val lo = all.min(); val hi = all.max()
+    val pad = ((hi - lo) * 0.1).coerceAtLeast(if (better) 0.02 else 0.2)
+    val yMin = lo - pad; val yMax = hi + pad
+    val grid = MaterialTheme.colorScheme.outlineVariant
+    val others = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+    val main = MaterialTheme.colorScheme.primary
+    val label = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+    Canvas(Modifier.fillMaxWidth().height(200.dp)) {
+        val text = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = label; textSize = 10.dp.toPx() }
+        val left = 40.dp.toPx(); val right = size.width - 14.dp.toPx(); val top = 8.dp.toPx(); val bottom = size.height - 30.dp.toPx()
+        fun x(i: Int) = left + (right - left) * i / (leads.size - 1)
+        // Errors are drawn upside down so a smaller miss sits higher.
+        fun y(v: Double): Float { val f = ((v - yMin) / (yMax - yMin)).toFloat(); return if (better) bottom - (bottom - top) * f else top + (bottom - top) * f }
+        for (k in 0..3) {
+            val value = yMin + (yMax - yMin) * k / 3
+            val yy = y(value)
+            drawLine(grid, Offset(left, yy), Offset(right, yy), 1f)
+            text.textAlign = android.graphics.Paint.Align.RIGHT
+            drawContext.canvas.nativeCanvas.drawText(fmt(value, measure), left - 4.dp.toPx(), yy + 3.dp.toPx(), text)
+        }
+        text.textAlign = android.graphics.Paint.Align.CENTER
+        leads.forEachIndexed { i, l -> drawContext.canvas.nativeCanvas.drawText(hoursLabel(l), x(i), bottom + 16.dp.toPx(), text) }
+        fun line(points: List<Double?>, color: Color, width: Float, dots: Boolean) {
+            val pts = points.mapIndexedNotNull { i, p -> p?.let { Offset(x(i), y(it)) } }
+            pts.zipWithNext().forEach { (a, b) -> drawLine(color, a, b, width) }
+            if (dots) pts.forEach { drawCircle(color, 4.dp.toPx(), it) }
+        }
+        series.filterKeys { it != picked }.values.forEach { line(it, others, 1.5.dp.toPx(), false) }
+        series[picked]?.let { line(it, main, 3.dp.toPx(), true) }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.width(18.dp).height(3.dp).background(main))
+        Text(picked?.let { Sources.label(it) } ?: "", style = MaterialTheme.typography.labelSmall)
+        Spacer(Modifier.width(8.dp))
+        Box(Modifier.width(18.dp).height(2.dp).background(others))
+        Text("other sources", style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+/** How far ahead each source usually gets it right and sticks with it, as bars on a 2-days-to-now axis, plus the shares. */
+@Composable
+private fun SettleSection(settled: List<Settled>, measure: Measure) {
+    Heading("When forecasts settle")
+    Note(
+        "For each hour of the last week: how far ahead every source's forecast became right and then stayed right through to the hour " +
+            "(rain or dry; temperature within ${app.weathertrack.core.sources.Drift.TEMP_OK.roundToInt()}°; wind within " +
+            "${app.weathertrack.core.sources.Drift.WIND_OK.roundToInt()} km/h; cloud within ${app.weathertrack.core.sources.Drift.CLOUD_OK.roundToInt()} points). " +
+            "Longer bar: you can trust it earlier.",
+    )
+    val rows = settled.filter { it.variable == measure.variable }.sortedByDescending { it.medianLeadH }
+    if (rows.isEmpty()) { Note("Needs a few days of hourly runs. Open Sources now and then, or let the app refresh in the background."); return }
+    val label = MaterialTheme.colorScheme.onSurface.toArgb()
+    val sub = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+    val grid = MaterialTheme.colorScheme.outlineVariant
+    Canvas(Modifier.fillMaxWidth().height((rows.size * 20 + 26).dp)) {
+        val text = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = label; textSize = 11.dp.toPx() }
+        val left = 118.dp.toPx(); val right = size.width - 10.dp.toPx(); val rowsBottom = rows.size * 20.dp.toPx()
+        fun x(h: Double) = right - (right - left) * (h.coerceIn(0.0, 48.0) / 48.0).toFloat()
+        listOf(48.0 to "2 days", 24.0 to "day before", 12.0 to "12 h", 0.0 to "now").forEach { (h, name) ->
+            drawLine(grid, Offset(x(h), 0f), Offset(x(h), rowsBottom), 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f)))
+            text.color = sub; text.textAlign = android.graphics.Paint.Align.CENTER
+            drawContext.canvas.nativeCanvas.drawText(name, x(h).coerceIn(left + 14.dp.toPx(), right - 12.dp.toPx()), rowsBottom + 16.dp.toPx(), text)
+        }
+        rows.forEachIndexed { i, r ->
+            val top = i * 20.dp.toPx() + 3.dp.toPx(); val h = 14.dp.toPx()
+            text.color = label; text.textAlign = android.graphics.Paint.Align.LEFT
+            drawContext.canvas.nativeCanvas.drawText(Sources.label(r.source).take(18), 0f, top + h - 3.dp.toPx(), text)
+            val x0 = x(r.medianLeadH)
+            drawRoundRect(heat(r.medianLeadH / 24.0), Offset(x0, top), Size(right - x0, h), androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()))
+            text.textAlign = android.graphics.Paint.Align.RIGHT
+            drawContext.canvas.nativeCanvas.drawText("${r.medianLeadH.roundToInt()} h", x0 - 3.dp.toPx(), top + h - 3.dp.toPx(), text)
+        }
+    }
+    SubHeading("Share of hours already settled")
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+        NameCell("Source", bold = true)
+        HeadCell("Typical"); HeadCell("24 h out"); HeadCell("12 h out"); HeadCell("6 h out"); HeadCell("3 h out")
+    }
+    rows.forEach { r ->
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            NameCell(Sources.label(r.source))
+            Text("${r.medianLeadH.roundToInt()} h", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+            listOf(r.by24, r.by12, r.by6, r.by3).forEach { share ->
+                HeatCell("${(share * 100).roundToInt()}%", share, Modifier.weight(1f), thin = r.hours < THIN_HOURS)
+            }
+        }
+    }
+    HeatLegend("Few", "Most")
 }
 
 private enum class PastView(val label: String) { HOURS("Hour by hour"), DAYS("Day by day"), WEEKS("By week") }
 
-private val Good = Color(0xFF2E7D32)
-private val Fair = Color(0xFFF9A825)
-private val Poor = Color(0xFFC62828)
-
-/** Shading for a temperature miss: green within 1°, amber within 2.5°, red beyond. */
-private fun tempShade(miss: Double?): Color = when {
-    miss == null -> Color.Transparent
-    miss <= 1.0 -> Good.copy(alpha = 0.22f)
-    miss <= 2.5 -> Fair.copy(alpha = 0.30f)
-    else -> Poor.copy(alpha = 0.28f)
-}
-
-/** Shading for a wind miss: green within 5 km/h, amber within 10, red beyond. */
-private fun windShade(miss: Double?): Color = when {
-    miss == null -> Color.Transparent
-    miss <= 5.0 -> Good.copy(alpha = 0.22f)
-    miss <= 10.0 -> Fair.copy(alpha = 0.30f)
-    else -> Poor.copy(alpha = 0.28f)
-}
-
-/** Shading for a cloud cover miss: green within 15 points, amber within 30, red beyond. */
-private fun cloudShade(miss: Double?): Color = when {
-    miss == null -> Color.Transparent
-    miss <= 15.0 -> Good.copy(alpha = 0.22f)
-    miss <= 30.0 -> Fair.copy(alpha = 0.30f)
-    else -> Poor.copy(alpha = 0.28f)
-}
-
-/** Shading for a share of rain calls right. */
-private fun rainShade(right: Double?): Color = when {
-    right == null -> Color.Transparent
-    right >= 0.85 -> Good.copy(alpha = 0.22f)
-    right >= 0.65 -> Fair.copy(alpha = 0.30f)
-    else -> Poor.copy(alpha = 0.28f)
-}
-
 /** Past forecasts: the last 7 days hour by hour or day by day, and earlier weeks summed. */
 @Composable
-private fun PastSection(v: SourceView, zone: java.time.ZoneId) {
-    var view by remember { mutableStateOf(PastView.HOURS) }
-    var measure by remember { mutableStateOf(Measure.TEMP) }
-    Text("Past forecasts", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(top = 8.dp))
-    Text(
+private fun PastSection(v: SourceView, zone: java.time.ZoneId, measure: Measure) {
+    var view by remember { mutableStateOf(PastView.DAYS) }
+    Heading("Past forecasts")
+    Note(
         "What each source said (its latest forecast made at least an hour ahead) against what happened. " +
             "The last 7 days show every hour; earlier days are kept as daily totals and shown by week.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         PastView.entries.forEach { FilterChip(selected = view == it, onClick = { view = it }, label = { Text(it.label) }) }
-    }
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(Measure.TEMP, Measure.RAIN, Measure.WIND, Measure.CLOUD).forEach { m ->
-            FilterChip(selected = measure == m, onClick = { measure = m }, label = { Text(if (m == Measure.RAIN) "Rain" else m.label) })
-        }
     }
     val order = v.weights.map { it.source }
     when (view) {
@@ -372,14 +754,14 @@ private fun PastSection(v: SourceView, zone: java.time.ZoneId) {
             "w/c " + it.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.ENGLISH))
         }
     }
-    Text(
+    HeatLegend()
+    Note(
         when (measure) {
-            Measure.TEMP -> "Green: within 1° on average; amber: within 2.5°; red: further out. A + means it ran warm, − cold."
-            Measure.RAIN -> "Cells show the share of hours where rain or no rain was called right (green 85%+, red under 65%)."
-            Measure.WIND -> "Wind speed miss in km/h: green within 5, amber within 10, red further out."
-            Measure.CLOUD -> "Cloud cover miss in percentage points: green within 15, amber within 30, red further out."
+            Measure.TEMP -> "Average temperature miss in °C. A + means it ran warm, − cold."
+            Measure.RAIN -> "Share of hours where rain or no rain was called right."
+            Measure.WIND -> "Average wind speed miss in km/h."
+            Measure.CLOUD -> "Average cloud cover miss in percentage points."
         },
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 
@@ -420,27 +802,27 @@ private fun PastHours(past: List<PastHour>, order: List<String>, zone: java.time
                 shown.forEach { src ->
                     val f = h.forecasts[src]
                     fun miss(a: Double?, b: Double?) = if (a != null && b != null) kotlin.math.abs(a - b) else null
+                    val cell = Modifier.width(48.dp)
                     when (measure) {
-                        Measure.TEMP -> ShadedCell(Format.temp(f?.temperature), tempShade(miss(f?.temperature, h.temperature)))
+                        Measure.TEMP -> HeatCell(Format.temp(f?.temperature), miss(f?.temperature, h.temperature)?.let { goodness(it, measure) }, cell)
                         Measure.RAIN -> {
                             val fp = f?.precipitation; val ap = h.precipitation
                             val right = if (fp != null && ap != null) (fp >= Sources.WET_MM) == (ap >= Sources.WET_MM) else null
-                            ShadedCell(f?.rainChance?.let { "${it.roundToInt()}%" } ?: "–", rainShade(right?.let { if (it) 1.0 else 0.0 }))
+                            HeatCell(f?.rainChance?.let { "${it.roundToInt()}%" } ?: "–", right?.let { if (it) 0.85 else 0.05 }, cell)
                         }
-                        Measure.WIND -> ShadedCell(f?.windSpeed?.roundToInt()?.toString() ?: "–", windShade(miss(f?.windSpeed, h.windSpeed)))
-                        Measure.CLOUD -> ShadedCell(f?.cloudCover?.let { "${it.roundToInt()}%" } ?: "–", cloudShade(miss(f?.cloudCover, h.cloudCover)))
+                        Measure.WIND -> HeatCell(f?.windSpeed?.roundToInt()?.toString() ?: "–", miss(f?.windSpeed, h.windSpeed)?.let { goodness(it, measure) }, cell)
+                        Measure.CLOUD -> HeatCell(f?.cloudCover?.let { "${it.roundToInt()}%" } ?: "–", miss(f?.cloudCover, h.cloudCover)?.let { goodness(it, measure) }, cell)
                     }
                 }
             }
         }
     }
-    Text(when (measure) {
-            Measure.TEMP -> "Each source's forecast temperature, shaded by how far off it was."
-            Measure.RAIN -> "Actual row: rain in mm or dry. Source rows: their rain chance, green when rain or no rain was right."
-            Measure.WIND -> "Actual row: wind speed in km/h. Source rows: their forecast, shaded by how far off it was."
-            Measure.CLOUD -> "Actual row: cloud cover. Source rows: their forecast, shaded by how far off it was."
-        },
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Note(when (measure) {
+        Measure.TEMP -> "Each source's forecast temperature, coloured by how far off it was."
+        Measure.RAIN -> "Actual row: rain in mm or dry. Source rows: their rain chance, green when rain or no rain was right, red when wrong."
+        Measure.WIND -> "Actual row: wind speed in km/h. Source rows: their forecast, coloured by how far off it was."
+        Measure.CLOUD -> "Actual row: cloud cover. Source rows: their forecast, coloured by how far off it was."
+    })
 }
 
 @Composable
@@ -459,6 +841,7 @@ private fun PeriodTable(rows: List<DayScore>, order: List<String>, measure: Meas
                 Cell(label(d), 64, bold = true, center = true)
                 shown.forEach { src ->
                     val sc = bySource[src]?.get(d)
+                    val cell = Modifier.width(64.dp)
                     when (measure) {
                         Measure.TEMP -> {
                             val bias = sc?.tempBias
@@ -466,21 +849,14 @@ private fun PeriodTable(rows: List<DayScore>, order: List<String>, measure: Meas
                                 val sign = bias?.let { if (it > 0.3) "+" else if (it < -0.3) "−" else "" } ?: ""
                                 String.format(java.util.Locale.US, "%s%.1f°", sign, mae)
                             } ?: "–"
-                            ShadedCell(text, tempShade(sc?.tempMae), 64)
+                            HeatCell(text, sc?.tempMae?.let { goodness(it, measure) }, cell)
                         }
-                        Measure.RAIN -> ShadedCell(sc?.wetDryRight?.let { "${(it * 100).roundToInt()}%" } ?: "–", rainShade(sc?.wetDryRight), 64)
-                        Measure.WIND -> ShadedCell(sc?.windMae?.let { "±${it.roundToInt()}" } ?: "–", windShade(sc?.windMae), 64)
-                        Measure.CLOUD -> ShadedCell(sc?.cloudMae?.let { "±${it.roundToInt()}" } ?: "–", cloudShade(sc?.cloudMae), 64)
+                        Measure.RAIN -> HeatCell(sc?.wetDryRight?.let { "${(it * 100).roundToInt()}%" } ?: "–", sc?.wetDryRight?.let { goodness(it, measure) }, cell)
+                        Measure.WIND -> HeatCell(sc?.windMae?.let { "±${it.roundToInt()}" } ?: "–", sc?.windMae?.let { goodness(it, measure) }, cell)
+                        Measure.CLOUD -> HeatCell(sc?.cloudMae?.let { "±${it.roundToInt()}" } ?: "–", sc?.cloudMae?.let { goodness(it, measure) }, cell)
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ShadedCell(text: String, bg: Color, width: Int = 48) {
-    Box(Modifier.width(width.dp).height(30.dp).padding(1.dp).background(bg), contentAlignment = Alignment.Center) {
-        Text(text, style = MaterialTheme.typography.bodySmall, maxLines = 1)
     }
 }
