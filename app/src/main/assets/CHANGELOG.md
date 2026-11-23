@@ -2,13 +2,22 @@
 
 Each release adds a section at the top. The app shows the one matching the installed version.
 
-## 1.4 · Map layers
+## 1.6 · Map layers
 - The map's title is now a menu: tap "Rain map ▾" to switch to cloud, wind, temperature, UV, humidity or fog. Each item says where its data comes from and whether it's live or a forecast.
 - Cloud splits into all, low, mid and high cloud. Wind shows speed or gusts with arrows. Temperature shows actual or feels like. Values are written on the map and the legend gives the figure at your spot.
 - The weather layers step hour by hour through the next 24 hours, and Thunder risk can sit on top of any of them.
 - Satellite: live Himawari infrared images from NASA, every 10 minutes for the last 2 hours, over the whole country.
 - Pressure and storms: sea-level pressure lines every 4 hPa with highs and lows, wind colours, and any active tropical cyclone's track and forecast cone (from GDACS) for 3 days ahead. A card says how far away the nearest cyclone is.
 - Weather fronts aren't drawn: they're only published as finished chart images under copyright, so the pressure lines and lows stand in for them.
+
+## 1.4 · Clearer Sources page
+- One Rain / Temp / Wind / Cloud switch at the top of Sources now drives every section.
+- How far ahead is shown as clock times: each lead window says the hours it covers right now (e.g. "1–7 pm · 6–12 h ahead"), and a strip shows which window each upcoming hour's blend uses.
+- New "Accuracy by how far ahead" heatmap: every source against every lead window, coloured poor to good, with thin evidence faded.
+- "Detail by window": share of the blend as bars, the score, hours checked and your reports for the window you pick, plus every window's weights side by side.
+- A chart of each source's accuracy from 1–2 days out to the last 3 hours; tap a source to highlight it.
+- "When forecasts settle" is now on Sources too, as bars on a 2-days-to-now axis with a coloured table.
+- All score tables, including Past forecasts, use one smooth red-to-green colour scale.
 
 ## 1.3 · Pollen and folded widget
 - Our own hay fever estimate where there's no pollen forecast (all of NZ): a pollen season calendar times the weather. Warm, sunny, dry and breezy days raise it, rain clears it, and a sunny day after rain can bring a burst. Today shows Low, Moderate or High with the main reasons and the worst time of day. It's an estimate, not a measured count.
