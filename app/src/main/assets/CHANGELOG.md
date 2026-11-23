@@ -2,6 +2,14 @@
 
 Each release adds a section at the top. The app shows the one matching the installed version.
 
+## 1.6 · Map layers
+- The map's title is now a menu: tap "Rain map ▾" to switch to cloud, wind, temperature, UV, humidity or fog. Each item says where its data comes from and whether it's live or a forecast.
+- Cloud splits into all, low, mid and high cloud. Wind shows speed or gusts with arrows. Temperature shows actual or feels like. Values are written on the map and the legend gives the figure at your spot.
+- The weather layers step hour by hour through the next 24 hours, and Thunder risk can sit on top of any of them.
+- Satellite: live Himawari infrared images from NASA, every 10 minutes for the last 2 hours, over the whole country.
+- Pressure and storms: sea-level pressure lines every 4 hPa with highs and lows, wind colours, and any active tropical cyclone's track and forecast cone (from GDACS) for 3 days ahead. A card says how far away the nearest cyclone is.
+- Weather fronts aren't drawn: they're only published as finished chart images under copyright, so the pressure lines and lows stand in for them.
+
 ## 1.5 · History tabs and explorer
 - History now has tabs across the top: Past weather, Forecast check, Home energy and Data. They replace the small icons, and tapping History in the bottom bar always brings you back to Past weather.
 - Past weather opens with "this month so far": highs against normal, rain as a share of normal, and rain days.
