@@ -7,6 +7,11 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.weathertrack.WeatherApp
 import app.weathertrack.core.history.DecadeStats
+import app.weathertrack.core.history.DailyObs
+import app.weathertrack.core.history.ExploreMeasure
+import app.weathertrack.core.history.ExploreSpan
+import app.weathertrack.core.history.ExploreView
+import app.weathertrack.core.history.Explorer
 import app.weathertrack.core.history.HistoryStats
 import app.weathertrack.core.history.YearOnYear
 import app.weathertrack.data.ExtrasRepository
@@ -44,6 +49,13 @@ data class HistoryState(
     val seasons: app.weathertrack.core.history.SeasonView? = null,
     /** The next 12 months: seasonal model, normals and El Niño / La Niña effects. */
     val outlook: OutlookView? = null,
+    /** Explorer choices: what to chart, over what period, against what. */
+    val measure: ExploreMeasure = ExploreMeasure.RAIN,
+    val span: ExploreSpan = ExploreSpan.MONTH,
+    val showYears: Boolean = true,
+    val showNormal: Boolean = true,
+    val showDecades: Boolean = true,
+    val explore: ExploreView? = null,
 )
 
 class HistoryViewModel(
@@ -68,7 +80,8 @@ class HistoryViewModel(
     private suspend fun onPlace() {
         val place = places.selected() ?: return
         userPickedMonth = false
-        _state.update { HistoryState(place = place) }
+        allObs = null
+        _state.update { HistoryState(place = place, measure = it.measure, span = it.span, showYears = it.showYears, showNormal = it.showNormal, showDecades = it.showDecades) }
         rangeJob?.cancel()
         rangeJob = viewModelScope.launch {
             history.observeRange(place.id).collect { r -> _state.update { it.copy(range = r) } }
@@ -102,6 +115,7 @@ class HistoryViewModel(
                         _state.update { it.copy(progress = done to total, waitSeconds = null) }
                         // Show each newly stored chunk straight away (newest years arrive first).
                         if (done > 0) viewModelScope.launch {
+                            allObs = null
                             if (userPickedMonth) recompute() else defaultMonth(place)
                             refreshSeasons(place)
                         }
@@ -110,7 +124,8 @@ class HistoryViewModel(
                 )
             }.onFailure { e -> _state.update { it.copy(error = e.message ?: "History download failed") } }
             _state.update { it.copy(syncing = false, progress = null, waitSeconds = null) }
-            if (userPickedMonth) recompute() else defaultMonth(place)
+            allObs = null
+                            if (userPickedMonth) recompute() else defaultMonth(place)
             refreshSeasons(place)
         }
     }
@@ -152,8 +167,9 @@ class HistoryViewModel(
     }
 
     fun shiftMonth(delta: Long) {
-        val next = _state.value.month.plusMonths(delta)
-        if (next.isAfter(YearMonth.now())) return
+        val s = _state.value
+        val next = s.span.step(s.month, delta.toInt())
+        if (s.span.start(next).isAfter(LocalDate.now())) return
         userPickedMonth = true
         _state.update { it.copy(month = next) }
         viewModelScope.launch { recompute() }
@@ -164,7 +180,7 @@ class HistoryViewModel(
         val place = s.place ?: return
         val obs = history.month(place.id, s.month.monthValue)
         if (obs.isEmpty()) {
-            _state.update { it.copy(yearOnYear = null, decades = emptyList()) }
+            _state.update { it.copy(yearOnYear = null, decades = emptyList(), explore = null) }
             return
         }
         _state.update {
@@ -173,6 +189,48 @@ class HistoryViewModel(
                 decades = HistoryStats.byDecade(obs, s.month.monthValue),
             )
         }
+        explore()
+    }
+
+    /** Every stored day for the place, kept while the place and data don't change. */
+    private var allObs: List<DailyObs>? = null
+
+    private suspend fun obs(place: PlaceEntity): List<DailyObs> =
+        allObs ?: history.all(place.id).also { allObs = it }
+
+    private suspend fun explore() {
+        val s = _state.value
+        val place = s.place ?: return
+        val all = obs(place)
+        val view = withContext(Dispatchers.Default) {
+            if (all.isEmpty()) null else Explorer.view(all, s.measure, s.span, s.month)
+        }
+        _state.update { cur ->
+            if (cur.place?.id == place.id && cur.measure == s.measure && cur.span == s.span && cur.month == s.month) cur.copy(explore = view) else cur
+        }
+    }
+
+    fun setMeasure(m: ExploreMeasure) {
+        _state.update { it.copy(measure = m) }
+        viewModelScope.launch { explore() }
+    }
+
+    fun setSpan(span: ExploreSpan) {
+        _state.update { it.copy(span = span) }
+        viewModelScope.launch { explore() }
+    }
+
+    fun toggleYears() = _state.update { it.copy(showYears = !it.showYears) }
+    fun toggleNormal() = _state.update { it.copy(showNormal = !it.showNormal) }
+    fun toggleDecades() = _state.update { it.copy(showDecades = !it.showDecades) }
+
+    /** The table and chart on screen as CSV, for "Save this view". */
+    fun viewCsv(): String? = _state.value.explore?.let(Explorer::csv)
+
+    /** Every stored day behind the view, all measures, as CSV. */
+    fun rawCsv(): String? {
+        val v = _state.value.explore ?: return null
+        return Explorer.rawCsv(allObs ?: return null, v)
     }
 
     companion object {

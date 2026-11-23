@@ -2,6 +2,16 @@
 
 Each release adds a section at the top. The app shows the one matching the installed version.
 
+## 1.5 · History tabs and explorer
+- History now has tabs across the top: Past weather, Forecast check, Home energy and Data. They replace the small icons, and tapping History in the bottom bar always brings you back to Past weather.
+- Past weather opens with "this month so far": highs against normal, rain as a share of normal, and rain days.
+- New explorer: pick High, Low, Rain, Sun or Gusts, a month, season or year, and compare with the last 2 years, the usual 1991–2020 range and decades. For highs, lows and rain the month-by-decade chart keeps its low-to-high bars with rain. Rain and sun build up through the period on the chart; highs, lows and gusts show day by day.
+- The year-on-year table adds how far each year was from normal, a count of notable days (rain days, sunny days, frosty nights…) and its rank since records began ("4th driest").
+- "Save this view" writes the table and chart lines to CSV; "Raw days" saves every stored day behind it.
+- Forecast check: chips at the top jump straight to each section.
+- Every saved place now builds its record in the background, not just the one you have open: Forecast check actuals and earlier runs, home climate and the archive history all sync for each place about twice a day.
+- Places: a new "All sources" switch saves every forecast source hourly for that place too, so Sources can score them there. It's off by default because it costs about 13 downloads an hour per place.
+
 ## 1.4 · Clearer Sources page
 - One Rain / Temp / Wind / Cloud switch at the top of Sources now drives every section.
 - How far ahead is shown as clock times: each lead window says the hours it covers right now (e.g. "1–7 pm · 6–12 h ahead"), and a strip shows which window each upcoming hour's blend uses.

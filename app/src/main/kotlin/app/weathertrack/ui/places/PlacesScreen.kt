@@ -38,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.material3.Switch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -68,6 +69,9 @@ class PlacesViewModel(
     val places: StateFlow<List<PlaceEntity>> =
         placeRepo.places.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val selectedId: StateFlow<Long> = placeRepo.selectedId
+    val sourcePlaces: StateFlow<Set<Long>> = placeRepo.sourcePlaces
+
+    fun setSaveSources(id: Long, on: Boolean) = placeRepo.setSaveSources(id, on)
     val results = MutableStateFlow<List<GeoPlace>>(emptyList())
     val message = MutableStateFlow<String?>(null)
 
@@ -122,6 +126,7 @@ class PlacesViewModel(
 fun PlacesScreen(onBack: (() -> Unit)? = null, vm: PlacesViewModel = viewModel(factory = PlacesViewModel.Factory)) {
     val places by vm.places.collectAsStateWithLifecycle()
     val selected by vm.selectedId.collectAsStateWithLifecycle()
+    val sourceIds by vm.sourcePlaces.collectAsStateWithLifecycle()
     val results by vm.results.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     var query by remember { mutableStateOf("") }
@@ -169,6 +174,14 @@ fun PlacesScreen(onBack: (() -> Unit)? = null, vm: PlacesViewModel = viewModel(f
                 item { HorizontalDivider() }
             }
             item { Text("Saved places", style = MaterialTheme.typography.titleSmall) }
+            item {
+                Text(
+                    "Every saved place keeps its forecasts, actuals and history in the background. " +
+                        "\"All sources\" also saves every forecast source each hour (about 13 downloads an hour per place), " +
+                        "which the Sources scores need. The selected place always does.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             items(places, key = { it.id }) { p ->
                 ListItem(
                     leadingContent = {
@@ -183,6 +196,14 @@ fun PlacesScreen(onBack: (() -> Unit)? = null, vm: PlacesViewModel = viewModel(f
                     },
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Switch(
+                                    checked = p.id == selected || p.id in sourceIds,
+                                    enabled = p.id != selected,
+                                    onCheckedChange = { on -> vm.setSaveSources(p.id, on) },
+                                )
+                                Text("All sources", style = MaterialTheme.typography.labelSmall)
+                            }
                             IconButton(onClick = { vm.delete(p) }) { Icon(Icons.Filled.Delete, "Remove ${p.name}") }
                         }
                     },

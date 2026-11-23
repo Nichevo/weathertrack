@@ -9,6 +9,10 @@ data class DailyObs(
     val tempMax: Double?,
     val tempMin: Double?,
     val precipitation: Double?,
+    /** Hours of sunshine in the day. */
+    val sunshineHours: Double? = null,
+    /** Strongest gust, km/h. */
+    val gustMax: Double? = null,
 )
 
 /** Summary of one period (for example 1 to 21 November in one year). */
