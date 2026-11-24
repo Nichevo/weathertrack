@@ -16,6 +16,7 @@ import app.weathertrack.core.climate.EnergyFit
 import app.weathertrack.core.climate.EnergyMonth
 import app.weathertrack.core.climate.HomeClimate
 import app.weathertrack.core.climate.PeriodRow
+import app.weathertrack.core.util.runCatchingCancellable
 import app.weathertrack.data.ClimateRepository
 import app.weathertrack.data.PlaceRepository
 import app.weathertrack.data.db.ObservedRange
@@ -118,7 +119,7 @@ class ClimateViewModel(
         if (syncJob?.isActive == true) return
         syncJob = viewModelScope.launch {
             _state.update { it.copy(syncing = true, error = null) }
-            runCatching {
+            runCatchingCancellable {
                 climate.sync(
                     place,
                     onProgress = { done, total ->
@@ -144,7 +145,7 @@ class ClimateViewModel(
 
     fun importEnergy(uri: Uri) {
         viewModelScope.launch {
-            val result = runCatching { climate.importEnergy(uri) }
+            val result = runCatchingCancellable { climate.importEnergy(uri) }
             val msg = result.fold(
                 onSuccess = { r ->
                     if (r == null) "Couldn't find a date column and a kWh column in that file."

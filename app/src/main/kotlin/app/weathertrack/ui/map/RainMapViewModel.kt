@@ -11,6 +11,7 @@ import app.weathertrack.core.map.RainGrid
 import app.weathertrack.core.map.RainViewer
 import app.weathertrack.core.map.TileMath
 import app.weathertrack.core.map.Wind
+import app.weathertrack.core.util.runCatchingCancellable
 import app.weathertrack.data.PlaceRepository
 import app.weathertrack.map.FieldKind
 import app.weathertrack.map.FieldOverlay
@@ -238,7 +239,7 @@ class RainMapViewModel(
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             when (_state.value.layer) {
-                MapLayer.RAIN -> runCatching { repo.radarFrames() }
+                MapLayer.RAIN -> runCatchingCancellable { repo.radarFrames() }
                     .onSuccess { f -> setFrames(f) }
                     .onFailure { e -> _state.update { it.copy(error = "Radar: ${e.message}") } }
                 MapLayer.SATELLITE -> loadSatellite()
@@ -265,7 +266,7 @@ class RainMapViewModel(
         _state.update { it.copy(index = it.defaultIndex) }
         viewModelScope.launch {
             when (layer) {
-                MapLayer.RAIN -> if (_state.value.radarFrames.isEmpty()) runCatching { repo.radarFrames() }.onSuccess { setFrames(it) }
+                MapLayer.RAIN -> if (_state.value.radarFrames.isEmpty()) runCatchingCancellable { repo.radarFrames() }.onSuccess { setFrames(it) }
                 MapLayer.SATELLITE -> loadSatellite()
                 else -> Unit
             }
@@ -288,7 +289,7 @@ class RainMapViewModel(
     }
 
     private suspend fun loadSatellite() {
-        runCatching { repo.satelliteLatest() }
+        runCatchingCancellable { repo.satelliteLatest() }
             .onSuccess { latest ->
                 _state.update {
                     val s = it.copy(satelliteTimes = Gibs.frames(latest))
@@ -299,7 +300,7 @@ class RainMapViewModel(
     }
 
     private suspend fun loadStorms() {
-        runCatching { repo.cyclones() }
+        runCatchingCancellable { repo.cyclones() }
             .onSuccess { list -> _state.update { it.copy(cyclones = list) } }
             .onFailure { e -> _state.update { it.copy(error = "Cyclones: ${e.message}") } }
     }
@@ -385,7 +386,7 @@ class RainMapViewModel(
         gridJob?.cancel()
         gridJob = viewModelScope.launch {
             if (!force) delay(800)
-            runCatching { repo.grid(v.centerLat, v.centerLon, halfKm, layers = layers) }
+            runCatchingCancellable { repo.grid(v.centerLat, v.centerLon, halfKm, layers = layers) }
                 .onSuccess { grid ->
                     _state.update {
                         val s = it.copy(grid = grid)
@@ -406,7 +407,7 @@ class RainMapViewModel(
         pressureJob?.cancel()
         pressureJob = viewModelScope.launch {
             if (!force) delay(800)
-            runCatching { repo.pressureGrid(v.centerLat, v.centerLon, halfKm) }
+            runCatchingCancellable { repo.pressureGrid(v.centerLat, v.centerLon, halfKm) }
                 .onSuccess { grid -> _state.update { it.copy(pressure = grid) } }
                 .onFailure { e -> _state.update { it.copy(error = "Pressure: ${e.message}") } }
         }

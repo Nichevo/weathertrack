@@ -9,6 +9,7 @@ import app.weathertrack.WeatherApp
 import app.weathertrack.core.alerts.Trigger
 import app.weathertrack.core.alerts.TriggerCalculator
 import app.weathertrack.core.jacket.JacketCalculator
+import app.weathertrack.core.util.runCatchingCancellable
 import app.weathertrack.core.walk.WalkForecast
 import app.weathertrack.core.walk.WalkPlanner
 import app.weathertrack.settings.SettingsRepository
@@ -89,7 +90,7 @@ class HomeViewModel(
             settings.settings.collect {
                 recompute()
                 // The 4x2 widget shows settings too (second clock, thresholds).
-                runCatching { updateWidgets() }
+                runCatchingCancellable { updateWidgets() }
             }
         }
     }
@@ -121,16 +122,16 @@ class HomeViewModel(
     }
 
     private suspend fun loadRadar(place: PlaceEntity) {
-        val spot = runCatching { radarSpot.check(place.latitude, place.longitude) }.getOrNull()
+        val spot = runCatchingCancellable { radarSpot.check(place.latitude, place.longitude) }.getOrNull()
         if (_state.value.place?.id == place.id) _state.update { it.copy(radar = spot) }
     }
 
     /** Learns how far off past highs were, so the 7-day rows can show a likely range. */
     private suspend fun loadBands(place: PlaceEntity) {
-        val bands = runCatching {
+        val bands = runCatchingCancellable {
             if (!forecastCheck.syncedRecently(place.id)) forecastCheck.sync(place)
             forecastCheck.highBands(place, dayRegimes = dayRegimes(place))
-        }.getOrElse { runCatching { forecastCheck.highBands(place, dayRegimes = dayRegimes(place)) }.getOrDefault(emptyMap()) }
+        }.getOrElse { runCatchingCancellable { forecastCheck.highBands(place, dayRegimes = dayRegimes(place)) }.getOrDefault(emptyMap()) }
         if (_state.value.place?.id == place.id) _state.update { it.copy(highBands = bands) }
         loadTrust(place)
         loadFans(place)
@@ -150,12 +151,12 @@ class HomeViewModel(
         val FC = app.weathertrack.core.accuracy.ForecastCheck
         val zone = Format.zone(place.timezone)
         val today = java.time.LocalDate.now(zone)
-        val result = runCatching {
+        val result = runCatchingCancellable {
             val fromEpoch = today.minusDays(3 * 365L).atStartOfDay(zone).toEpochSecond()
             val r = forecastCheck.runs(place.id, fromEpoch)
             val o = forecastCheck.observed(place.id, fromEpoch)
             val daily = (weather.cachedForecast(place)?.forecast?.daily).orEmpty()
-                .mapNotNull { d -> runCatching { java.time.LocalDate.parse(d.date) }.getOrNull()?.let { it to d } }
+                .mapNotNull { d -> runCatchingCancellable { java.time.LocalDate.parse(d.date) }.getOrNull()?.let { it to d } }
             // A range needs enough checked days behind it to mean "8 in 10".
             val enough = app.weathertrack.core.accuracy.Band.MIN_BAND_DAYS
             val hi = FC.seasonalHighErrors(r, o, zone, today).filter { it.days >= enough }
@@ -176,31 +177,31 @@ class HomeViewModel(
     /** Pulls every forecast source (when due), then scores them and blends. */
     private suspend fun loadSources(place: PlaceEntity) {
         val now = System.currentTimeMillis() / 1000
-        runCatching { sources.refresh(place, weather.cachedForecast(place), "app") }
-        val view = runCatching {
+        runCatchingCancellable { sources.refresh(place, weather.cachedForecast(place), "app") }
+        val view = runCatchingCancellable {
             val from = now - 60 * 86400L
             sources.view(place.id, Format.zone(place.timezone), forecastCheck.observed(place.id, from), forecastCheck.reports(place.id, from))
         }.getOrNull()
-        val changes = runCatching { sources.changes(place.id, Format.zone(place.timezone)) }.getOrDefault(emptyList())
+        val changes = runCatchingCancellable { sources.changes(place.id, Format.zone(place.timezone)) }.getOrDefault(emptyList())
         if (_state.value.place?.id == place.id) _state.update { it.copy(sources = view, changes = changes) }
     }
 
     private suspend fun loadExtras(place: PlaceEntity) {
-        val tides = runCatching { extras.tides(place, portName = settings.current.tidePort) }.getOrNull()
+        val tides = runCatchingCancellable { extras.tides(place, portName = settings.current.tidePort) }.getOrNull()
         if (_state.value.place?.id == place.id) _state.update { it.copy(tides = tides) }
-        val spread = runCatching { extras.spread(place) }.getOrDefault(emptyList())
+        val spread = runCatchingCancellable { extras.spread(place) }.getOrDefault(emptyList())
         if (_state.value.place?.id == place.id) _state.update { it.copy(spread = spread) }
-        val warnings = runCatching { extras.warnings(place) }.getOrDefault(emptyList())
+        val warnings = runCatchingCancellable { extras.warnings(place) }.getOrDefault(emptyList())
         if (_state.value.place?.id == place.id) _state.update { it.copy(warnings = warnings) }
-        val air = runCatching { extras.air(place) }.getOrDefault(emptyList())
+        val air = runCatchingCancellable { extras.air(place) }.getOrDefault(emptyList())
         if (_state.value.place?.id == place.id) _state.update { it.copy(air = air) }
     }
 
     private suspend fun loadTrust(place: PlaceEntity) {
         val cfg = settings.current
-        val trust = runCatching { forecastCheck.trustRecord(place, cfg.jacketThresholds, cfg.morningTime.hour) }.getOrNull()
+        val trust = runCatchingCancellable { forecastCheck.trustRecord(place, cfg.jacketThresholds, cfg.morningTime.hour) }.getOrNull()
         val now = System.currentTimeMillis() / 1000
-        val mine = runCatching { app.weathertrack.core.accuracy.Feedback.current(forecastCheck.reports(place.id, now - 3600), now) }.getOrNull()
+        val mine = runCatchingCancellable { app.weathertrack.core.accuracy.Feedback.current(forecastCheck.reports(place.id, now - 3600), now) }.getOrNull()
         if (_state.value.place?.id == place.id) _state.update { it.copy(trust = trust, myReport = mine) }
         loadComfort(place)
     }
@@ -214,8 +215,8 @@ class HomeViewModel(
             val f = s.stored?.forecast
             val mm = f?.quarterHourly?.firstOrNull { now >= it.time && now < it.time + 900 }?.precipitation
             val chance = f?.hourly?.firstOrNull { now >= it.time && now < it.time + 3600 }?.precipitationProbability
-            val radar = s.radar ?: runCatching { radarSpot.check(place.latitude, place.longitude) }.getOrNull()
-            runCatching { forecastCheck.report(place, raining, mm, chance, radar) }
+            val radar = s.radar ?: runCatchingCancellable { radarSpot.check(place.latitude, place.longitude) }.getOrNull()
+            runCatchingCancellable { forecastCheck.report(place, raining, mm, chance, radar) }
                 .onSuccess {
                     val zone = Format.zone(place.timezone)
                     _state.update { it.copy(reportMessage = "Thanks. Saved \"${if (raining) "raining" else "dry"}\" at ${Format.time(now, zone)}.") }
@@ -233,7 +234,7 @@ class HomeViewModel(
             val now = System.currentTimeMillis() / 1000
             val f = s.stored?.forecast
             val hour = f?.hourly?.firstOrNull { now >= it.time - 3600 && now < it.time }
-            runCatching { forecastCheck.feeling(place, kind, hour, f?.current) }
+            runCatchingCancellable { forecastCheck.feeling(place, kind, hour, f?.current) }
                 .onSuccess {
                     val zone = Format.zone(place.timezone)
                     val word = when (kind) {
@@ -251,15 +252,15 @@ class HomeViewModel(
 
     private suspend fun loadComfort(place: PlaceEntity) {
         val zone = Format.zone(place.timezone)
-        val lines = runCatching {
+        val lines = runCatchingCancellable {
             app.weathertrack.core.comfort.Comfort.summary(forecastCheck.feelings(place.id, System.currentTimeMillis() / 1000 - 3 * 365 * 86400L), zone)
         }.getOrDefault(emptyList())
         if (_state.value.place?.id == place.id) _state.update { it.copy(comfort = lines) }
-        val pollen = runCatching { forecastCheck.pollen(place, weather.cachedForecast(place)?.forecast) }
+        val pollen = runCatchingCancellable { forecastCheck.pollen(place, weather.cachedForecast(place)?.forecast) }
             .onFailure { android.util.Log.w("Home", "Pollen estimate failed", it) }.getOrNull()
         if (_state.value.place?.id == place.id) _state.update { it.copy(pollen = pollen) }
         // Keep the learned comfort points in settings, where the jacket call, alerts and walks read them.
-        runCatching {
+        runCatchingCancellable {
             val now = System.currentTimeMillis() / 1000
             val m = app.weathertrack.core.comfort.Comfort.model(forecastCheck.allFeelings(now - 400 * 86400L), now)
             fun half(v: Double?) = v?.let { Math.round(it * 2) / 2.0 } ?: Double.NaN
@@ -280,7 +281,7 @@ class HomeViewModel(
         refreshJob = viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             launch { loadRadar(place) }
-            runCatching { weather.refreshForecast(place, trigger) }
+            runCatchingCancellable { weather.refreshForecast(place, trigger) }
                 .onSuccess { fresh -> _state.update { it.copy(stored = fresh, loading = false) } }
                 .onFailure { e -> _state.update { it.copy(loading = false, error = e.message ?: "Refresh failed") } }
             recompute()
