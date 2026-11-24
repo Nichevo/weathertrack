@@ -14,6 +14,7 @@ import app.weathertrack.core.history.ExploreView
 import app.weathertrack.core.history.Explorer
 import app.weathertrack.core.history.HistoryStats
 import app.weathertrack.core.history.YearOnYear
+import app.weathertrack.core.util.runCatchingCancellable
 import app.weathertrack.data.ExtrasRepository
 import app.weathertrack.data.HistoryRepository
 import app.weathertrack.core.seasonal.ModelMonth
@@ -108,7 +109,7 @@ class HistoryViewModel(
         if (syncJob?.isActive == true) return
         syncJob = viewModelScope.launch {
             _state.update { it.copy(syncing = true, error = null) }
-            runCatching {
+            runCatchingCancellable {
                 history.sync(
                     place,
                     onProgress = { done, total ->

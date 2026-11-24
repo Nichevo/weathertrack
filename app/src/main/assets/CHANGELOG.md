@@ -9,6 +9,7 @@ Each release adds a section at the top. The app shows the one matching the insta
 - Satellite: live Himawari infrared images from NASA, every 10 minutes for the last 2 hours, over the whole country.
 - Pressure and storms: sea-level pressure lines every 4 hPa with highs and lows, wind colours, and any active tropical cyclone's track and forecast cone (from GDACS) for 3 days ahead. A card says how far away the nearest cyclone is.
 - Weather fronts aren't drawn: they're only published as finished chart images under copyright, so the pressure lines and lows stand in for them.
+- Fix: moving the map or switching layers no longer shows "Forecast: StandaloneCoroutine was cancelled". A download replaced by a newer one now stops quietly, here and on the other screens.
 
 ## 1.5 · History tabs and explorer
 - History now has tabs across the top: Past weather, Forecast check, Home energy and Data. They replace the small icons, and tapping History in the bottom bar always brings you back to Past weather.

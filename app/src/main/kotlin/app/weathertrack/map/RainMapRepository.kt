@@ -6,6 +6,7 @@ import app.weathertrack.core.map.RainGrid
 import app.weathertrack.core.map.RainViewer
 import app.weathertrack.core.openmeteo.OpenMeteoParser
 import app.weathertrack.core.openmeteo.OpenMeteoUrls
+import app.weathertrack.core.util.runCatchingCancellable
 import app.weathertrack.data.WeatherRepository
 import app.weathertrack.data.db.RawPullDao
 import app.weathertrack.data.db.RawPullEntity
@@ -103,7 +104,7 @@ class RainMapRepository(private val http: HttpFetcher, private val rawDao: RawPu
         rawDao.insert(raw("gdacs", "tc_events", null, null, r.url, r.fetchedAtMs, r.status, r.durationMs, "map", r.body))
         if (r.status != 200) throw IOException("Cyclones returned HTTP ${r.status}")
         val list = Gdacs.parseEvents(r.body).filter { it.current }.take(6).map { e ->
-            val track = runCatching {
+            val track = runCatchingCancellable {
                 val g = http.get(Gdacs.geometryUrl(e.id, e.episode))
                 rawDao.insert(raw("gdacs", "tc_track", e.lat, e.lon, g.url, g.fetchedAtMs, g.status, g.durationMs, "map", g.body))
                 if (g.status == 200) Gdacs.parseTrack(g.body) else null

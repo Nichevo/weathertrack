@@ -16,6 +16,7 @@ import app.weathertrack.core.accuracy.ObsHour
 import app.weathertrack.core.accuracy.Reliability
 import app.weathertrack.core.accuracy.RunHour
 import app.weathertrack.core.accuracy.Score
+import app.weathertrack.core.util.runCatchingCancellable
 import app.weathertrack.data.ForecastCheckRepository
 import app.weathertrack.data.PlaceRepository
 import app.weathertrack.data.db.PlaceEntity
@@ -120,7 +121,7 @@ class ForecastCheckViewModel(
         if (syncJob?.isActive == true) return
         syncJob = viewModelScope.launch {
             _state.update { it.copy(syncing = true, error = null) }
-            runCatching {
+            runCatchingCancellable {
                 repo.sync(place, onWait = { left -> _state.update { it.copy(waitSeconds = left.takeIf { s -> s > 0 }) } })
             }.onFailure { e -> _state.update { it.copy(error = e.message ?: "Download failed") } }
             _state.update { it.copy(syncing = false, waitSeconds = null) }
@@ -140,7 +141,7 @@ class ForecastCheckViewModel(
         val iss = issued
         val st = settings.current
         val daily = weather.cachedForecast(place)?.forecast?.daily.orEmpty()
-        val myReports = runCatching { repo.reports(place.id, fromEpoch) }.getOrDefault(emptyList())
+        val myReports = runCatchingCancellable { repo.reports(place.id, fromEpoch) }.getOrDefault(emptyList())
         val result = withContext(Dispatchers.Default) {
             val actuals = ForecastCheck.dailyActuals(o, zone)
             val leads = ForecastCheck.highErrors(r, o, zone, from)
@@ -149,7 +150,7 @@ class ForecastCheckViewModel(
             val seasonal = ForecastCheck.seasonalHighErrors(r, o, zone, today)
             val allDays = ForecastCheck.highErrors(r, o, zone, LocalDate.of(1970, 1, 1)).associate { it.lead to it.days }
             val isSeasonal = seasonal.any { allDays[it.lead] != it.days }
-            val dated = daily.mapNotNull { d -> runCatching { LocalDate.parse(d.date) }.getOrNull()?.let { it to d } }
+            val dated = daily.mapNotNull { d -> runCatchingCancellable { LocalDate.parse(d.date) }.getOrNull()?.let { it to d } }
             ForecastCheckState(
                 reports = app.weathertrack.core.accuracy.Feedback.score(myReports),
                 tempFan = ForecastCheck.fan(dated.map { it.first to it.second.temperatureMax }, today, seasonal.ifEmpty { leads }),
@@ -171,11 +172,11 @@ class ForecastCheckViewModel(
                 relations = app.weathertrack.core.accuracy.Relations.all(o, zone, from),
             )
         }
-        val settled = runCatching {
+        val settled = runCatchingCancellable {
             val weekObs = o.filter { it.time >= System.currentTimeMillis() / 1000 - 8 * 86400L }
             withContext(Dispatchers.Default) { sources.settled(place.id, weekObs) }
         }.getOrDefault(emptyList())
-        val pollen = runCatching { repo.pollen(place, weather.cachedForecast(place)?.forecast) }.getOrNull()
+        val pollen = runCatchingCancellable { repo.pollen(place, weather.cachedForecast(place)?.forecast) }.getOrNull()
         _state.update {
             it.copy(
                 jacket = result.jacket, rainCalls = result.rainCalls, leads = result.leads, bands = result.bands,
