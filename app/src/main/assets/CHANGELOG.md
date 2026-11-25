@@ -2,6 +2,13 @@
 
 Each release adds a section at the top. The app shows the one matching the installed version.
 
+## 1.7 · How hard it's raining
+- The Raining / Dry buttons on Today are now four: Dry, Spitting, Rain and Heavy. Spitting means under 0.5 mm an hour, Rain 0.5 to 4, Heavy over 4.
+- Tap either widget (the 4x2, or the map on the rain map widget) for a pop-up with the same four buttons, so you can report without opening the app. It also has a button through to the app.
+- Forecast check: "Your reports" now says how often the forecast amount was in the same band as what you saw, how often it was too heavy or too light, and a table of what you reported against what the forecast said.
+- Sources: each source's amount is checked against your level too ("amt" under Your reports). When you both call it wet, a source loses a little rain weight for each step its amount was off, so the blend favours sources that get the intensity right.
+- The export's user_report table has a new rain_level column (dry, spitting, rain, heavy). Reports made before this release keep an empty level: dry ones still count as Dry, raining ones count for wet or dry only.
+
 ## 1.6 · Map layers
 - The map's title is now a menu: tap "Rain map ▾" to switch to cloud, wind, temperature, UV, humidity or fog. Each item says where its data comes from and whether it's live or a forecast.
 - Cloud splits into all, low, mid and high cloud. Wind shows speed or gusts with arrows. Temperature shows actual or feels like. Values are written on the map and the legend gives the figure at your spot.

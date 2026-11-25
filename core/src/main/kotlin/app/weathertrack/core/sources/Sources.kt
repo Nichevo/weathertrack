@@ -1,6 +1,7 @@
 package app.weathertrack.core.sources
 
 import app.weathertrack.core.accuracy.ObsHour
+import app.weathertrack.core.accuracy.RainLevel
 import app.weathertrack.core.accuracy.RainReport
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -101,9 +102,12 @@ data class SourceScore(
     val wetDryRight: Double?,
     /** Mean squared error of the rain chance (0 perfect, 0.25 is a coin toss). */
     val brier: Double?,
-    /** Your Raining/Dry reports this source got right, and how many it was checked on. */
+    /** Your reports this source got wet or dry right, and how many it was checked on. */
     val reportsRight: Int = 0,
     val reportsTotal: Int = 0,
+    /** Your reports with a known level (Dry/Spitting/Rain/Heavy) where this source's amount was in the same band, and how many were checked. */
+    val levelRight: Int = 0,
+    val levelTotal: Int = 0,
     /** Hours with a temperature checked. */
     val tempHours: Int = 0,
     /** Hours with a rain chance checked, and how many of them were actually wet. */
@@ -177,6 +181,8 @@ object Sources {
     fun label(key: String): String = ALL.firstOrNull { key(it) == key }?.label ?: key
 
     const val WET_MM = 0.1
+    /** Added to a report's rain-chance miss for each band a wet amount was off from the level you reported. */
+    const val LEVEL_MISS = 0.1
 
     /** A rain chance for a single-run model, from its amount (it either rains in the model or not). */
     fun chanceFromMm(mm: Double?): Double? = when {
@@ -288,7 +294,7 @@ object Sources {
     /**
      * How each source did over past hours, for forecasts issued [minLeadH]..[maxLeadH] hours ahead
      * (the latest such forecast for each hour). Actuals are the model analysis for the spot, and your
-     * own Raining/Dry reports are scored separately.
+     * own rain reports are scored separately.
      */
     fun scores(
         issued: List<IssuedSourceHour>, obs: List<ObsHour>, reports: List<RainReport> = emptyList(),
@@ -314,19 +320,27 @@ object Sources {
                     if (wet) { wetB += e; wetN++; obsWet++ } else { dryB += e; dryN++ }
                 }
             }
-            var repRight = 0; var repTotal = 0
+            var repRight = 0; var repTotal = 0; var lvRight = 0; var lvTotal = 0
             for (r in reports) {
                 val hour = ((r.time / 3600) + 1) * 3600
                 val f = best[hour] ?: continue
+                // How hard: the source's hourly amount against the level you reported.
+                val seen = r.effectiveLevel
+                val said = f.precipitation?.let { RainLevel.fromHourMm(it) }
+                if (seen != null && said != null) { lvTotal++; if (seen == said) lvRight++ }
                 val chance = f.rainChance ?: continue
                 repTotal++
                 if ((chance >= 50) == r.raining) repRight++
                 // What you saw counts in the rain record too, alongside the model analysis.
-                val p = chance / 100; val o = if (r.raining) 1.0 else 0.0; val e = (p - o) * (p - o)
+                val p = chance / 100; val o = if (r.raining) 1.0 else 0.0
+                var e = (p - o) * (p - o)
+                // When both of you call it wet, each band the amount was off by (Spitting vs Heavy is 2)
+                // adds to the miss, so sources that get the intensity right weigh more in the rain blend.
+                if (seen != null && said != null && seen.wet && said.wet) e = minOf(1.0, e + LEVEL_MISS * abs(seen.ordinal - said.ordinal))
                 if (r.raining) { wetB += e; wetN++ } else { dryB += e; dryN++ }
             }
             SourceScore(src, n, if (tN > 0) tErr / tN else null, if (rN > 0) right.toDouble() / rN else null,
-                if (bN > 0) brier / bN else null, repRight, repTotal,
+                if (bN > 0) brier / bN else null, repRight, repTotal, lvRight, lvTotal,
                 tempHours = tN, rainHours = bN, wetHours = obsWet,
                 brierWet = if (wetN > 0) wetB / wetN else null, brierDry = if (dryN > 0) dryB / dryN else null,
                 windMae = if (wN > 0) wErr / wN else null, windHours = wN,

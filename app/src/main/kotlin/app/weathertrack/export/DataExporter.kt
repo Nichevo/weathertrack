@@ -20,7 +20,7 @@ class DataExporter(private val context: Context, private val db: AppDatabase) {
         ENERGY_DAY("energy_day", "Imported power use"),
         OBSERVED_HOUR("observed_hour", "Actual hours (for Forecast check)"),
         PREVIOUS_RUN_HOUR("previous_run_hour", "Earlier model runs (for Forecast check)"),
-        USER_REPORT("user_report", "Your raining / dry reports"),
+        USER_REPORT("user_report", "Your rain reports (dry, spitting, rain, heavy)"),
         SOURCE_HOUR("source_hour", "Every forecast source, hour by hour as issued"),
         SOURCE_DAY("source_day", "Each forecast source's record, day by day"),
         FEELING_REPORT("feeling_report", "Your chilly, too warm and pollen reports, with the weather then"),

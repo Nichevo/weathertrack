@@ -35,7 +35,6 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import app.weathertrack.MainActivity
 import app.weathertrack.WeatherApp
 import app.weathertrack.core.alerts.Trigger
 import app.weathertrack.core.alerts.TriggerCalculator
@@ -169,7 +168,8 @@ private fun WidgetContent(s: WidgetSnapshot?) {
         .background(ImageProvider(bg))
         .cornerRadius(24.dp)
         .padding(horizontal = 14.dp, vertical = 8.dp)
-        .clickable(actionStartActivity<MainActivity>())
+        // Tapping opens the rain report pop-up, which also has a button through to the app.
+        .clickable(actionStartActivity<app.weathertrack.ui.report.RainReportActivity>())
     if (s == null) {
         Box(root, contentAlignment = Alignment.Center) {
             Text("Open WeatherTrack to load the forecast", style = text(13, Palette.muted))

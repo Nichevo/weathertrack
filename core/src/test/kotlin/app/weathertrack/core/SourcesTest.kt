@@ -127,6 +127,33 @@ class SourcesTest {
         assertEquals(10.0, blend.chanceLow!!, 0.01)
         assertEquals(90.0, blend.chanceHigh!!, 0.01)
     }
+
+    @Test fun reportedLevelRewardsTheRightAmount() {
+        val hours = (1L..10L).map { it * 3600 }
+        val obs = hours.map { ObsHour(it, 15.0, null, 0.0, null) }
+        // Both say rain is certain; "drizzle" forecasts 0.3 mm in the hour, "downpour" 8 mm.
+        val drizzle = hours.map { IssuedSourceHour("drizzle", it - 6 * 3600, it, 15.0, 0.3, 90.0) }
+        val downpour = hours.map { IssuedSourceHour("downpour", it - 6 * 3600, it, 15.0, 8.0, 90.0) }
+        val reports = listOf(
+            RainReport.of(hours[3] - 1800, app.weathertrack.core.accuracy.RainLevel.SPITTING, null, null),
+            RainReport.of(hours[5] - 1800, app.weathertrack.core.accuracy.RainLevel.SPITTING, null, null),
+        )
+        val scores = Sources.scores(drizzle + downpour, obs, reports).associateBy { it.source }
+        assertEquals(2, scores.getValue("drizzle").levelRight)
+        assertEquals(0, scores.getValue("downpour").levelRight)
+        assertEquals(2, scores.getValue("downpour").levelTotal)
+        assertEquals(2, scores.getValue("downpour").reportsRight) // wet / dry alone can't tell them apart
+        assertTrue(scores.getValue("drizzle").brierWet!! < scores.getValue("downpour").brierWet!!)
+    }
+
+    @Test fun oldWetReportsHaveNoLevel() {
+        val hours = (1L..4L).map { it * 3600 }
+        val obs = hours.map { ObsHour(it, 15.0, null, 0.0, null) }
+        val src = hours.map { IssuedSourceHour("a", it - 6 * 3600, it, 15.0, 8.0, 90.0) }
+        val s = Sources.scores(src, obs, listOf(RainReport(hours[1] - 1800, true, null, null))).single()
+        assertEquals(0, s.levelTotal)
+        assertEquals(1, s.reportsTotal)
+    }
 }
 
 class LowErrorsTest {
@@ -139,4 +166,5 @@ class LowErrorsTest {
         val e = app.weathertrack.core.accuracy.ForecastCheck.lowErrors(runs, obs, zone, d, leads = listOf(1)).single()
         assertEquals(-2.0, e.bias, 1e-9)
     }
+
 }

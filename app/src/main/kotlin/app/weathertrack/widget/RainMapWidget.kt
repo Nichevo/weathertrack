@@ -49,7 +49,6 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import app.weathertrack.MainActivity
 import app.weathertrack.WeatherApp
 import app.weathertrack.core.map.RainBand
 import app.weathertrack.core.map.RainOutlooks
@@ -223,7 +222,8 @@ private fun Content(meta: RainWidgetFrames.Meta?, step: Int, bitmap: Bitmap?, er
             contentDescription = "Rain map, ${s.label}",
             contentScale = ContentScale.Crop,
             modifier = GlanceModifier.fillMaxWidth().defaultWeight().padding(horizontal = 8.dp).cornerRadius(16.dp)
-                .clickable(actionStartActivity<MainActivity>()),
+                // Tapping the map opens the rain report pop-up, which also has a button through to the app.
+                .clickable(actionStartActivity<app.weathertrack.ui.report.RainReportActivity>()),
         )
         Row(GlanceModifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp)) {
             meta.steps.forEachIndexed { i, st ->

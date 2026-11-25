@@ -85,7 +85,7 @@ fun HomeScreen(
     vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
-    val onReport: (Boolean) -> Unit = vm::report
+    val onReport: (app.weathertrack.core.accuracy.RainLevel) -> Unit = vm::report
     val forecast = state.stored?.forecast
     val zone = Format.zone(forecast?.timezone ?: state.place?.timezone)
     val appSettings = (androidx.compose.ui.platform.LocalContext.current.applicationContext as app.weathertrack.WeatherApp)
@@ -198,7 +198,13 @@ private fun rainNowText(
     val until = j.rainEndsAt?.let { " until about ${Format.time(it, zone)}" } ?: ""
     val seen = radar?.let { " (radar ${Format.time(it.time, zone)})" } ?: ""
     return when {
-        mine != null -> (if (mine.raining) "Raining (you reported at " else "Dry (you reported at ") + "${Format.time(mine.time, zone)})" +
+        mine != null -> when (mine.effectiveLevel) {
+            null -> "Raining"
+            app.weathertrack.core.accuracy.RainLevel.DRY -> "Dry"
+            app.weathertrack.core.accuracy.RainLevel.SPITTING -> "Spitting"
+            app.weathertrack.core.accuracy.RainLevel.RAIN -> "Raining"
+            app.weathertrack.core.accuracy.RainLevel.HEAVY -> "Raining heavily"
+        } + " (you reported at ${Format.time(mine.time, zone)})" +
             if (!mine.raining && j.rainStartsAt != null && j.rainStartsAt!! > mine.time) ". Rain forecast from about ${Format.time(j.rainStartsAt!!, zone)}" else ""
         radar == null -> j.rainStartsAt?.let { if (j.rainingNow) "Raining now$until" else "Rain likely from about ${Format.time(it, zone)}$until" }
         radar.wetHere -> "Raining here now$seen" + if (j.rainingNow) until else ""
@@ -210,22 +216,15 @@ private fun rainNowText(
     }
 }
 
-/** "It's raining" / "It's dry" buttons: the report is stored with what the forecast and radar said. */
+/** Dry / Spitting / Rain / Heavy buttons: the report is stored with what the forecast and radar said. */
 @Composable
 private fun ReportRow(
-    message: String?, onReport: (Boolean) -> Unit,
+    message: String?, onReport: (app.weathertrack.core.accuracy.RainLevel) -> Unit,
     onFeel: (app.weathertrack.core.comfort.Feeling.Kind) -> Unit = {}, comfort: List<String> = emptyList(),
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Right now here:", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            androidx.compose.material3.OutlinedButton(onClick = { onReport(true) }) {
-                app.weathertrack.ui.WeatherIcon(63, true, size = 20.dp); Spacer(Modifier.width(6.dp)); Text("Raining")
-            }
-            androidx.compose.material3.OutlinedButton(onClick = { onReport(false) }) {
-                app.weathertrack.ui.WeatherIcon(0, true, size = 20.dp); Spacer(Modifier.width(6.dp)); Text("Dry")
-            }
-        }
+        Text("Right now here:", style = MaterialTheme.typography.bodyMedium)
+        app.weathertrack.ui.RainLevelButtons(onPick = onReport)
         // How you feel: saved with the weather at the time, so the app can learn your chilly point and pollen pattern.
         Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {

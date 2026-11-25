@@ -206,20 +206,17 @@ class HomeViewModel(
         loadComfort(place)
     }
 
-    /** Saves the user's "raining" / "dry" report, with what the forecast and radar said right now. */
-    fun report(raining: Boolean) {
+    /** Saves the user's Dry / Spitting / Rain / Heavy report, with what the forecast and radar said right now. */
+    fun report(level: app.weathertrack.core.accuracy.RainLevel) {
         val s = _state.value
         val place = s.place ?: return
         viewModelScope.launch {
             val now = System.currentTimeMillis() / 1000
-            val f = s.stored?.forecast
-            val mm = f?.quarterHourly?.firstOrNull { now >= it.time && now < it.time + 900 }?.precipitation
-            val chance = f?.hourly?.firstOrNull { now >= it.time && now < it.time + 3600 }?.precipitationProbability
             val radar = s.radar ?: runCatchingCancellable { radarSpot.check(place.latitude, place.longitude) }.getOrNull()
-            runCatchingCancellable { forecastCheck.report(place, raining, mm, chance, radar) }
+            runCatchingCancellable { forecastCheck.reportNow(place, level, s.stored?.forecast, radar) }
                 .onSuccess {
                     val zone = Format.zone(place.timezone)
-                    _state.update { it.copy(reportMessage = "Thanks. Saved \"${if (raining) "raining" else "dry"}\" at ${Format.time(now, zone)}.") }
+                    _state.update { it.copy(reportMessage = "Thanks. Saved \"${level.label.lowercase()}\" at ${Format.time(now, zone)}.") }
                     loadTrust(place)
                 }
                 .onFailure { e -> _state.update { it.copy(reportMessage = "Couldn't save that: ${e.message}") } }
