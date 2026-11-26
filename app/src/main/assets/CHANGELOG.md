@@ -2,6 +2,13 @@
 
 Each release adds a section at the top. The app shows the one matching the installed version.
 
+## 1.8 · Time zones map
+- New Time zones layer on the map, under World in the layer menu. Each zone is coloured by its offset from UTC, with its local time, city and offset written on it.
+- Your place's zone is outlined in blue. Tap anywhere to see that zone's clock: the time there, its offset, how far ahead or behind you it is, and when daylight saving next starts or ends.
+- The timeline steps through the next 24 hours, so you can see what time it will be elsewhere when it's, say, 7 pm here. Clocks tick over each minute while the map is open.
+- Works offline: the zone borders are built into the app (from timezone-boundary-builder, © OpenStreetMap contributors), and the clocks use your phone's own time zone rules, so daylight saving changes stay right as the phone updates.
+- The map zooms out further on this layer, to see most of the world at once.
+
 ## 1.7 · How hard it's raining
 - The Raining / Dry buttons on Today are now four: Dry, Spitting, Rain and Heavy. Spitting means under 0.5 mm an hour, Rain 0.5 to 4, Heavy over 4.
 - Tap either widget (the 4x2, or the map on the rain map widget) for a pop-up with the same four buttons, so you can report without opening the app. It also has a button through to the app.

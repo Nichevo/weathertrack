@@ -59,6 +59,8 @@ data class MapLayers(
     val pressure: RainGrid? = null,
     val pressureAt: Long? = null,
     val cyclones: List<RainMapRepository.Cyclone> = emptyList(),
+    /** Time zone boundaries and clocks, drawn over the base map. */
+    val timeZones: TimeZoneOverlay? = null,
 )
 
 /** Which hourly value a weather layer colours, its colour scale and how a value reads on the map. */
@@ -142,6 +144,7 @@ class MapPainter(private val tiles: TileStore) {
     private val legDash = DashPathEffect(floatArrayOf(6f, 5f), 0f)
     private val stormFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0xC0, 0x39, 0x2B) }
     private val stormRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f }
+    private val timeZonePainter = TimeZonePainter()
 
     /** Tile URLs [draw] needs for [v] and [layers], to preload before drawing off screen. */
     fun urlsFor(v: Viewport, layers: MapLayers): List<String> {
@@ -164,6 +167,7 @@ class MapPainter(private val tiles: TileStore) {
         }
 
         satelliteTiles(v, layers)?.forEach { (rect, url) -> tiles.peek(url)?.let { canvas.drawBitmap(it, null, rect, satPaint) } }
+        layers.timeZones?.let { timeZonePainter.draw(canvas, v, it) }
 
         val grid = layers.grid
         val field = layers.field

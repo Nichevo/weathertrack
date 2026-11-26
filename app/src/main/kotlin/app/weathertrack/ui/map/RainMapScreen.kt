@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,8 +60,10 @@ import app.weathertrack.WeatherApp
 import app.weathertrack.core.map.ColorScale
 import app.weathertrack.core.map.LayerScales
 import app.weathertrack.core.map.RainBand
+import app.weathertrack.core.map.ZoneClock
 import app.weathertrack.map.FieldKind
 import app.weathertrack.map.MapPainter
+import app.weathertrack.map.TimeZonePainter
 import app.weathertrack.map.TileStore
 import app.weathertrack.ui.Format
 import java.time.Instant
@@ -96,6 +99,8 @@ fun RainMapScreen(vm: RainMapViewModel = viewModel(factory = RainMapViewModel.Fa
                     if (zoomAccum[0] > 1.6f) { vm.zoomBy(1); zoomAccum[0] = 1f }
                     if (zoomAccum[0] < 0.6f) { vm.zoomBy(-1); zoomAccum[0] = 1f }
                 }
+            }.pointerInput(scale) {
+                detectTapGestures { vm.tap(it.x / scale.toDouble(), it.y / scale.toDouble()) }
             },
         ) {
             vm.setSize(size.width / scale.toDouble(), size.height / scale.toDouble())
@@ -126,6 +131,8 @@ fun RainMapScreen(vm: RainMapViewModel = viewModel(factory = RainMapViewModel.Fa
                         f is MapFrame.Radar -> Triple("Past", Badge, OnBadge)
                         f is MapFrame.Satellite && f.latest -> Triple("Live", LiveBadge, OnBadge)
                         f is MapFrame.Satellite -> Triple("Past", Badge, OnBadge)
+                        f is MapFrame.Clock && f.now -> Triple("Now", LiveBadge, OnBadge)
+                        f is MapFrame.Clock -> Triple("Later", ForecastBadge, OnForecastBadge)
                         else -> Triple("…", Badge, OnBadge)
                     }
                     Text(label, Modifier.clip(RoundedCornerShape(8.dp)).background(bg).padding(horizontal = 12.dp, vertical = 6.dp),
@@ -142,6 +149,7 @@ fun RainMapScreen(vm: RainMapViewModel = viewModel(factory = RainMapViewModel.Fa
                     MapLayer.RAIN -> Legend()
                     MapLayer.SATELLITE -> NoteBox("Satellite", "Infrared: white and colours are cold, high cloud tops.\nLines are sea-level pressure every 4 hPa.")
                     MapLayer.PRESSURE -> ScaleLegend("Wind km/h", LayerScales.WIND, "0", "50", "100", "Lines: pressure every 4 hPa")
+                    MapLayer.TIMEZONE -> NoteBox("Time zones", "Colours show the offset from UTC at the time shown. Your zone is outlined in blue.\nTap anywhere for its clock.")
                     else -> s.fieldKind?.let { FieldLegend(it, s.spotValue) }
                 }
                 Spacer(Modifier.weight(1f))
@@ -156,7 +164,8 @@ fun RainMapScreen(vm: RainMapViewModel = viewModel(factory = RainMapViewModel.Fa
             }
         }
 
-        if (s.layer.wide && s.stormsOn) StormCard(s, Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 150.dp))
+        s.zoneCard?.let { ZoneCardView(it, Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 150.dp)) }
+        if (s.layer.showsStorms && s.stormsOn) StormCard(s, Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 150.dp))
 
         // Timeline.
         Surface(
@@ -177,6 +186,7 @@ fun RainMapScreen(vm: RainMapViewModel = viewModel(factory = RainMapViewModel.Fa
                             Text(
                                 when {
                                     f is MapFrame.Satellite -> "Satellite · NASA GIBS"
+                                    f is MapFrame.Clock -> "Clocks · your phone's time zone rules"
                                     f is MapFrame.Forecast -> "Forecast · Open-Meteo"
                                     f is MapFrame.Radar && f.latest -> "Radar · latest"
                                     else -> "Radar · RainViewer"
@@ -220,18 +230,22 @@ private fun attribution(layer: MapLayer): String = when (layer) {
     MapLayer.RAIN -> TileStore.ATTRIBUTION
     MapLayer.SATELLITE -> "© OpenStreetMap contributors · Satellite: NASA GIBS, JMA Himawari · Pressure: Open-Meteo · Cyclones: GDACS"
     MapLayer.PRESSURE -> "© OpenStreetMap contributors · Forecast: Open-Meteo · Cyclones: GDACS"
+    MapLayer.TIMEZONE -> "© OpenStreetMap contributors · Time zone borders: timezone-boundary-builder (ODbL)"
     else -> "© OpenStreetMap contributors · Forecast: Open-Meteo"
 }
 
-/** The layer menu under the title: near-you layers, then whole-country ones, each with its source. */
+/** The layer menu under the title: near-you layers, then whole-country ones, then world ones, each with its source. */
 @Composable
 private fun LayerMenu(open: Boolean, current: MapLayer, onDismiss: () -> Unit, onPick: (MapLayer) -> Unit) {
     DropdownMenu(expanded = open, onDismissRequest = onDismiss) {
         MenuHeading("Near you")
-        MapLayer.entries.filter { !it.wide }.forEach { LayerItem(it, it == current, onPick) }
+        MapLayer.entries.filter { it.view == MapView.NEAR }.forEach { LayerItem(it, it == current, onPick) }
         HorizontalDivider(Modifier.padding(vertical = 4.dp))
         MenuHeading("Whole country")
-        MapLayer.entries.filter { it.wide }.forEach { LayerItem(it, it == current, onPick) }
+        MapLayer.entries.filter { it.view == MapView.WIDE }.forEach { LayerItem(it, it == current, onPick) }
+        HorizontalDivider(Modifier.padding(vertical = 4.dp))
+        MenuHeading("World")
+        MapLayer.entries.filter { it.view == MapView.WORLD }.forEach { LayerItem(it, it == current, onPick) }
     }
 }
 
@@ -253,7 +267,11 @@ private fun LayerItem(layer: MapLayer, selected: Boolean, onPick: (MapLayer) -> 
             }
         },
         trailingIcon = {
-            val (t, bg, fg) = if (layer.live) Triple("Live", LiveBadge, OnBadge) else Triple("Forecast", ForecastBadge, OnForecastBadge)
+            val (t, bg, fg) = when {
+                layer == MapLayer.TIMEZONE -> Triple("Offline", Badge, OnBadge)
+                layer.live -> Triple("Live", LiveBadge, OnBadge)
+                else -> Triple("Forecast", ForecastBadge, OnForecastBadge)
+            }
             Text(t, Modifier.clip(RoundedCornerShape(4.dp)).background(bg).padding(horizontal = 6.dp, vertical = 2.dp),
                 color = fg, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
         },
@@ -271,6 +289,7 @@ private fun swatch(layer: MapLayer): Brush = when (layer) {
     MapLayer.FOG -> Brush.linearGradient(listOf(Color(0xFFEEF1F5), Color(0xFF8A94A6)))
     MapLayer.SATELLITE -> Brush.linearGradient(listOf(Color(0xFF16202C), Color(0xFFE9EEF5)))
     MapLayer.PRESSURE -> Brush.linearGradient(listOf(Color(0xFF1F5A9C), Color.White, Color(0xFFC0392B)))
+    MapLayer.TIMEZONE -> Brush.horizontalGradient((9..13).map { Color(ZoneClock.color(it * 3600, alpha = 255)) })
 }
 
 /** A gradient through the scale's colours, spaced by value. */
@@ -301,7 +320,9 @@ private fun LayerChips(s: RainMapState, vm: RainMapViewModel) {
             }
             else -> Unit
         }
-        if (s.layer.wide) {
+        if (s.layer == MapLayer.TIMEZONE) {
+            if (s.picked != null) FilterChip(selected = false, onClick = vm::clearPick, label = { Text("Back to your zone") })
+        } else if (s.layer.showsStorms) {
             FilterChip(selected = s.pressureOn, onClick = vm::togglePressure, label = { Text("Pressure") })
             FilterChip(selected = s.stormsOn, onClick = vm::toggleStorms, label = { Text("Storms") })
         } else {
@@ -354,6 +375,47 @@ private fun NoteBox(title: String, text: String) {
         Text(text, Modifier.width(170.dp), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+/** The tapped zone's clock (or your own): time, offset, how far from you, and the next daylight saving change. */
+@Composable
+private fun ZoneCardView(c: ZoneCard, modifier: Modifier) {
+    val zoneId = ZoneClock.zone(c.info.id) ?: return
+    val local = c.at.atZone(zoneId)
+    val name = TimeZonePainter.placeName(c.info.id)
+    Surface(modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), shadowElevation = 2.dp,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            val title = when {
+                name == null -> "Open ocean (${c.info.id})"
+                c.tapped -> "$name · ${c.info.id}"
+                else -> "Your time zone · ${c.info.id}"
+            }
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            val offset = ZoneClock.offsetLabel(c.info.offsetSeconds) + if (c.info.daylightSaving) ", daylight saving" else ""
+            val diff = if (c.tapped) " · " + ZoneClock.difference(c.info.offsetSeconds, c.homeOffset) else ""
+            Text("${local.format(zoneDayTime)} · $offset$diff", fontSize = 12.sp)
+            val next = c.info.nextChange
+            val after = c.info.nextOffsetSeconds
+            val change = if (next != null && after != null) {
+                val shift = (after - c.info.offsetSeconds) / 60
+                val what = when {
+                    c.info.daylightSaving && shift < 0 -> "Daylight saving ends"
+                    shift > 0 && ZoneClock.zone(c.info.id)!!.rules.isDaylightSavings(next) -> "Daylight saving starts"
+                    else -> "The clock changes"
+                }
+                val dir = if (shift > 0) "forward" else "back"
+                val by = if (kotlin.math.abs(shift) % 60 == 0) "${kotlin.math.abs(shift) / 60} h" else "${kotlin.math.abs(shift)} min"
+                "$what ${next.atZone(zoneId).format(zoneChange)} (${ZoneClock.until(c.at, next)}): clocks go $dir $by to ${ZoneClock.offsetLabel(after)}."
+            } else {
+                "No daylight saving: the clock stays at ${ZoneClock.offsetLabel(c.info.offsetSeconds)}."
+            }
+            Text(change, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+private val zoneDayTime = DateTimeFormatter.ofPattern("EEE d MMM, h:mm a", Locale.ENGLISH)
+private val zoneChange = DateTimeFormatter.ofPattern("EEE d MMM yyyy, h:mm a", Locale.ENGLISH)
 
 /** The nearest active tropical cyclone, or a note that there are none. */
 @Composable

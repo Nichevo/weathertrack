@@ -10,6 +10,8 @@ import app.weathertrack.core.map.Gibs
 import app.weathertrack.core.map.RainGrid
 import app.weathertrack.core.map.RainViewer
 import app.weathertrack.core.map.TileMath
+import app.weathertrack.core.map.TimeZoneShapes
+import app.weathertrack.core.map.ZoneClock
 import app.weathertrack.core.map.Wind
 import app.weathertrack.core.util.runCatchingCancellable
 import app.weathertrack.data.PlaceRepository
@@ -17,6 +19,8 @@ import app.weathertrack.map.FieldKind
 import app.weathertrack.map.FieldOverlay
 import app.weathertrack.map.MapLayers
 import app.weathertrack.map.RainMapRepository
+import app.weathertrack.map.TimeZoneMap
+import app.weathertrack.map.TimeZoneOverlay
 import app.weathertrack.map.Viewport
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -26,6 +30,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.time.Instant
 import kotlin.math.abs
 import kotlin.math.asin
 import kotlin.math.atan2
@@ -39,10 +44,19 @@ sealed class MapFrame(val time: Long) {
     class Radar(val frame: RainViewer.Frame, val latest: Boolean) : MapFrame(frame.time)
     class Forecast(time: Long) : MapFrame(time)
     class Satellite(time: Long, val latest: Boolean) : MapFrame(time)
+    /** A clock time for the time zone map: now, then each hour ahead. */
+    class Clock(time: Long, val now: Boolean) : MapFrame(time)
 }
 
-/** What the map shows. Near-you layers open at street level; wide ones over the whole country. */
-enum class MapLayer(val title: String, val menuName: String, val source: String, val live: Boolean = false, val wide: Boolean = false) {
+/** How far out a layer opens: street level, the whole country, or a good part of the world. */
+enum class MapView(val zoom: Int, val minZoom: Int, val maxZoom: Int) {
+    NEAR(9, 5, 13),
+    WIDE(5, 3, 8),
+    WORLD(3, 1, 8),
+}
+
+/** What the map shows. Near-you layers open at street level; wide ones over the whole country; world ones further out. */
+enum class MapLayer(val title: String, val menuName: String, val source: String, val live: Boolean = false, val view: MapView = MapView.NEAR) {
     RAIN("Rain map", "Rain", "RainViewer radar, then Open-Meteo", live = true),
     CLOUD("Cloud map", "Cloud cover", "Low, mid and high · Open-Meteo"),
     WIND("Wind map", "Wind and gusts", "Open-Meteo"),
@@ -50,16 +64,26 @@ enum class MapLayer(val title: String, val menuName: String, val source: String,
     UV("UV map", "UV index", "Open-Meteo"),
     HUMIDITY("Humidity map", "Humidity", "Open-Meteo"),
     FOG("Fog map", "Fog and visibility", "Open-Meteo"),
-    SATELLITE("Satellite", "Satellite", "Himawari infrared · NASA GIBS", live = true, wide = true),
-    PRESSURE("Pressure and storms", "Pressure and storms", "Open-Meteo · GDACS cyclone tracks", wide = true);
+    SATELLITE("Satellite", "Satellite", "Himawari infrared · NASA GIBS", live = true, view = MapView.WIDE),
+    PRESSURE("Pressure and storms", "Pressure and storms", "Open-Meteo · GDACS cyclone tracks", view = MapView.WIDE),
+    TIMEZONE("Time zones", "Time zones", "Built into the app · clocks from your phone", live = true, view = MapView.WORLD);
 
     /** Coloured from the hourly weather grid. */
     val usesFields get() = this in listOf(CLOUD, WIND, TEMP, UV, HUMIDITY, FOG)
+
+    /** Anything but street level. */
+    val wide get() = view != MapView.NEAR
+
+    /** Has the pressure lines and cyclone tracks. */
+    val showsStorms get() = this == SATELLITE || this == PRESSURE
 }
 
 enum class CloudLevel(val label: String, val kind: FieldKind) {
     ALL("All", FieldKind.CLOUD), LOW("Low", FieldKind.CLOUD_LOW), MID("Mid", FieldKind.CLOUD_MID), HIGH("High", FieldKind.CLOUD_HIGH)
 }
+
+/** A time zone's clock for the card under the time zone map. */
+data class ZoneCard(val info: ZoneClock.Info, val at: Instant, val tapped: Boolean, val homeOffset: Int)
 
 /** The nearest active tropical cyclone to the selected place. */
 data class StormNote(val cyclone: RainMapRepository.Cyclone, val km: Double, val compass: String)
@@ -86,12 +110,18 @@ data class RainMapState(
     val cyclones: List<RainMapRepository.Cyclone>? = null,
     val loading: Boolean = false,
     val error: String? = null,
+    val timeZones: TimeZoneShapes? = null,
+    /** A spot tapped on the time zone map, to show that zone's clock. */
+    val picked: Pair<Double, Double>? = null,
+    /** Epoch seconds the time zone clocks start from, ticking while that map is open. */
+    val clockNow: Long = System.currentTimeMillis() / 1000,
 ) {
     val frames: List<MapFrame>
         get() = when (layer) {
             MapLayer.RAIN -> radarFrames
             MapLayer.SATELLITE -> satelliteTimes.mapIndexed { i, t -> MapFrame.Satellite(t, i == satelliteTimes.lastIndex) }
             MapLayer.PRESSURE -> hourFrames(pressure, every = 3, max = 25)
+            MapLayer.TIMEZONE -> clockFrames(clockNow)
             else -> hourFrames(grid, every = 1, max = RainMapRepository.LAYER_HOURS)
         }
 
@@ -134,6 +164,10 @@ data class RainMapState(
                     pressure = pressure?.takeIf { pressureOn }, pressureAt = f?.time,
                     cyclones = storms, marker = marker,
                 )
+                MapLayer.TIMEZONE -> MapLayers(
+                    timeZones = timeZones?.let { TimeZoneOverlay(it, f?.time ?: clockNow, zone, pickedZone?.id) },
+                    marker = marker,
+                )
                 MapLayer.PRESSURE -> MapLayers(
                     grid = pressure,
                     field = f?.let { FieldOverlay(FieldKind.WIND, it.time, labels = false) },
@@ -174,6 +208,25 @@ data class RainMapState(
             }.minByOrNull { it.km }
         }
 
+    /** The zone tapped on the time zone map, if any. */
+    val pickedZone: TimeZoneShapes.Zone?
+        get() = picked?.let { (lat, lon) -> timeZones?.zoneAt(lat, lon) }
+
+    /** What the time zone card describes: the tapped zone, or the selected place's own. */
+    val zoneCard: ZoneCard?
+        get() {
+            if (layer != MapLayer.TIMEZONE) return null
+            val at = Instant.ofEpochSecond(frame?.time ?: clockNow)
+            val id = pickedZone?.id ?: zone ?: return null
+            val info = ZoneClock.info(id, at) ?: return null
+            return ZoneCard(info, at, tapped = pickedZone != null && id != zone, homeOffset = ZoneClock.offsetOrUtc(zone, at))
+        }
+
+    private fun clockFrames(now: Long): List<MapFrame> {
+        val nextHour = (now / 3600 + 1) * 3600
+        return listOf(MapFrame.Clock(now, now = true)) + (0 until 24).map { MapFrame.Clock(nextHour + it * 3600L, now = false) }
+    }
+
     private fun hourFrames(g: RainGrid?, every: Int, max: Int): List<MapFrame> {
         g ?: return emptyList()
         val thisHour = System.currentTimeMillis() / 1000 / 3600 * 3600
@@ -205,28 +258,27 @@ data class RainMapState(
 class RainMapViewModel(
     private val repo: RainMapRepository,
     private val places: PlaceRepository,
+    private val timeZoneMap: TimeZoneMap,
 ) : ViewModel() {
     private val _state = MutableStateFlow(RainMapState())
     val state: StateFlow<RainMapState> = _state
     private var playJob: Job? = null
     private var gridJob: Job? = null
     private var pressureJob: Job? = null
-    /** Where each kind of view was, so switching between near and wide layers comes back to it. */
-    private var nearView: Viewport? = null
-    private var wideView: Viewport? = null
+    private var clockJob: Job? = null
+    /** Where each kind of view was, so switching between near, wide and world layers comes back to it. */
+    private val views = HashMap<MapView, Viewport>()
 
     init {
         viewModelScope.launch {
             places.ensureDefaults()
             places.selectedId.collectLatest {
                 val p = places.selected() ?: return@collectLatest
-                nearView = null
-                wideView = null
+                views.clear()
                 _state.update {
-                    val zoom = if (it.layer.wide) WIDE_ZOOM else DEFAULT_ZOOM
                     it.copy(
-                        viewport = Viewport.at(p.latitude, p.longitude, zoom, it.viewport?.width ?: 400.0, it.viewport?.height ?: 700.0),
-                        marker = p.latitude to p.longitude, zone = p.timezone, grid = null, pressure = null,
+                        viewport = Viewport.at(p.latitude, p.longitude, it.layer.view.zoom, it.viewport?.width ?: 400.0, it.viewport?.height ?: 700.0),
+                        marker = p.latitude to p.longitude, zone = p.timezone, grid = null, pressure = null, picked = null,
                     )
                 }
                 refresh()
@@ -243,11 +295,12 @@ class RainMapViewModel(
                     .onSuccess { f -> setFrames(f) }
                     .onFailure { e -> _state.update { it.copy(error = "Radar: ${e.message}") } }
                 MapLayer.SATELLITE -> loadSatellite()
+                MapLayer.TIMEZONE -> loadTimeZones()
                 else -> Unit
             }
             _state.update { it.copy(loading = false) }
             loadForView(force = true)
-            if (_state.value.layer.wide) loadStorms()
+            if (_state.value.layer.showsStorms) loadStorms()
         }
     }
 
@@ -256,21 +309,23 @@ class RainMapViewModel(
         if (layer == s.layer) return
         playJob?.cancel()
         var v = s.viewport
-        if (layer.wide != s.layer.wide && v != null) {
-            if (s.layer.wide) wideView = v else nearView = v
+        if (layer.view != s.layer.view && v != null) {
+            views[s.layer.view] = v
             val (lat, lon) = s.marker ?: (v.centerLat to v.centerLon)
-            v = if (layer.wide) wideView ?: Viewport.at(lat, lon, WIDE_ZOOM, v.width, v.height)
-            else nearView ?: Viewport.at(lat, lon, DEFAULT_ZOOM, v.width, v.height)
+            v = views[layer.view]?.copy(width = v.width, height = v.height) ?: Viewport.at(lat, lon, layer.view.zoom, v.width, v.height)
         }
-        _state.update { it.copy(layer = layer, viewport = v, playing = false, error = null) }
+        _state.update { it.copy(layer = layer, viewport = v, playing = false, error = null, clockNow = System.currentTimeMillis() / 1000) }
         _state.update { it.copy(index = it.defaultIndex) }
+        clockJob?.cancel()
+        if (layer == MapLayer.TIMEZONE) startClock()
         viewModelScope.launch {
             when (layer) {
                 MapLayer.RAIN -> if (_state.value.radarFrames.isEmpty()) runCatchingCancellable { repo.radarFrames() }.onSuccess { setFrames(it) }
                 MapLayer.SATELLITE -> loadSatellite()
+                MapLayer.TIMEZONE -> loadTimeZones()
                 else -> Unit
             }
-            if (layer.wide) loadStorms()
+            if (layer.showsStorms) loadStorms()
         }
         loadForView(force = true)
     }
@@ -299,6 +354,39 @@ class RainMapViewModel(
             .onFailure { e -> _state.update { it.copy(error = "Satellite: ${e.message}") } }
     }
 
+    private suspend fun loadTimeZones() {
+        if (_state.value.timeZones != null) return
+        runCatchingCancellable { timeZoneMap.shapes() }
+            .onSuccess { tz -> _state.update { it.copy(timeZones = tz) } }
+            .onFailure { e -> _state.update { it.copy(error = "Time zones: ${e.message}") } }
+    }
+
+    /** Keeps the time zone clocks current while that map is open. */
+    private fun startClock() {
+        clockJob = viewModelScope.launch {
+            while (isActive) {
+                val now = System.currentTimeMillis()
+                // Tick just after each minute turns over.
+                delay(60_000 - now % 60_000 + 200)
+                _state.update { it.copy(clockNow = System.currentTimeMillis() / 1000) }
+            }
+        }
+    }
+
+    /** A tap on the time zone map picks the zone there; tapping it again goes back to your own. */
+    fun tap(screenX: Double, screenY: Double) {
+        val s = _state.value
+        if (s.layer != MapLayer.TIMEZONE) return
+        val v = s.viewport ?: return
+        val size = TileMath.worldSize(v.zoom)
+        val lat = TileMath.lat((v.top + screenY).coerceIn(0.0, size), v.zoom)
+        val lon = TileMath.lon((v.left + screenX).mod(size), v.zoom)
+        val zone = s.timeZones?.zoneAt(lat, lon)
+        _state.update { it.copy(picked = if (zone == null || zone.id == it.pickedZone?.id) null else lat to lon) }
+    }
+
+    fun clearPick() = _state.update { it.copy(picked = null) }
+
     private suspend fun loadStorms() {
         runCatchingCancellable { repo.cyclones() }
             .onSuccess { list -> _state.update { it.copy(cyclones = list) } }
@@ -321,8 +409,8 @@ class RainMapViewModel(
 
     fun zoomBy(delta: Int) {
         val v = _state.value.viewport ?: return
-        val wide = _state.value.layer.wide
-        val z = (v.zoom + delta).coerceIn(if (wide) WIDE_MIN_ZOOM else MIN_ZOOM, if (wide) WIDE_MAX_ZOOM else MAX_ZOOM)
+        val view = _state.value.layer.view
+        val z = (v.zoom + delta).coerceIn(view.minZoom, view.maxZoom)
         if (z == v.zoom) return
         _state.update { it.copy(viewport = v.zoomedTo(z)) }
         loadForView(force = false)
@@ -361,7 +449,8 @@ class RainMapViewModel(
     private fun loadForView(force: Boolean) {
         val layer = _state.value.layer
         when {
-            layer == MapLayer.SATELLITE || layer == MapLayer.PRESSURE -> loadPressure(force)
+            layer.showsStorms -> loadPressure(force)
+            layer == MapLayer.TIMEZONE -> Unit
             else -> loadGrid(force)
         }
     }
@@ -414,18 +503,10 @@ class RainMapViewModel(
     }
 
     companion object {
-        const val DEFAULT_ZOOM = 9
-        const val MIN_ZOOM = 5
-        const val MAX_ZOOM = 13
-        /** The satellite and storm views open over the whole country. */
-        const val WIDE_ZOOM = 5
-        const val WIDE_MIN_ZOOM = 3
-        const val WIDE_MAX_ZOOM = 8
-
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as WeatherApp
-                RainMapViewModel(app.container.rainMap, app.container.places)
+                RainMapViewModel(app.container.rainMap, app.container.places, app.container.timeZones)
             }
         }
     }
