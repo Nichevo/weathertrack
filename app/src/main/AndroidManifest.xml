@@ -25,6 +25,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Rain report pop-up opened from the widgets: floats over the home screen, kept out of Recents. -->
+        <activity
+            android:name=".ui.report.RainReportActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:theme="@style/Theme.WeatherTrack.Popup" />
+
         <receiver
             android:name=".widget.DetailWidgetReceiver"
             android:exported="true"

@@ -155,19 +155,33 @@ class ForecastCheckRepository(
 
     private val reportDao = db.userReportDao()
 
-    /** Saves a "raining" / "dry" report with what the forecast and radar said at that moment. */
+    /** Saves a Dry / Spitting / Rain / Heavy report with what the forecast and radar said at that moment. */
     suspend fun report(
-        place: PlaceEntity, raining: Boolean, forecastMm: Double?, forecastChance: Double?,
+        place: PlaceEntity, level: app.weathertrack.core.accuracy.RainLevel, forecastMm: Double?, forecastChance: Double?,
         radar: app.weathertrack.core.map.RadarSpot?,
     ) {
         reportDao.insert(
             app.weathertrack.data.db.UserReportEntity(
                 placeId = place.id, reportedAt = System.currentTimeMillis() / 1000,
-                latitude = place.latitude, longitude = place.longitude, raining = raining,
+                latitude = place.latitude, longitude = place.longitude, raining = level.wet,
                 forecastMm = forecastMm, forecastChance = forecastChance,
-                radarHere = radar?.here, radarTime = radar?.time,
+                radarHere = radar?.here, radarTime = radar?.time, rainLevel = level.key,
             ),
         )
+    }
+
+    /**
+     * Saves [level] for right now, taking the forecast amount and rain chance for this moment from
+     * [forecast]. Used by Today and by the widget pop-up.
+     */
+    suspend fun reportNow(
+        place: PlaceEntity, level: app.weathertrack.core.accuracy.RainLevel,
+        forecast: app.weathertrack.core.model.Forecast?, radar: app.weathertrack.core.map.RadarSpot?,
+    ) {
+        val now = System.currentTimeMillis() / 1000
+        val mm = forecast?.quarterHourly?.firstOrNull { now >= it.time && now < it.time + 900 }?.precipitation
+        val chance = forecast?.hourly?.firstOrNull { now >= it.time && now < it.time + 3600 }?.precipitationProbability
+        report(place, level, mm, chance, radar)
     }
 
     /** Saves how you feel right now, with the weather this hour. */
@@ -201,7 +215,10 @@ class ForecastCheckRepository(
         }
 
     suspend fun reports(placeId: Long, from: Long): List<app.weathertrack.core.accuracy.RainReport> =
-        reportDao.since(placeId, from).map { app.weathertrack.core.accuracy.RainReport(it.reportedAt, it.raining, it.forecastMm, it.radarHere) }
+        reportDao.since(placeId, from).map {
+            app.weathertrack.core.accuracy.RainReport(it.reportedAt, it.raining, it.forecastMm, it.radarHere,
+                app.weathertrack.core.accuracy.RainLevel.of(it.rainLevel))
+        }
 
     companion object {
         const val ENDPOINT_PAST = "forecast_past_hours"

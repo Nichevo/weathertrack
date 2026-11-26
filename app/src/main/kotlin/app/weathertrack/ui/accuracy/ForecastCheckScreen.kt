@@ -346,12 +346,17 @@ fun ForecastCheckScreen(
             Section("Your reports") {
                 val r = s.reports
                 if (r == null || r.reports == 0) {
-                    Text("Tap Raining or Dry on Today when you're out. Each report is saved with what the forecast and radar " +
-                        "said at that moment, and scored here.", style = MaterialTheme.typography.bodySmall)
+                    Text("Tap Dry, Spitting, Rain or Heavy on Today (or tap the widget) when you're out. Each report is saved with what " +
+                        "the forecast and radar said at that moment, and scored here.", style = MaterialTheme.typography.bodySmall)
                 } else {
                     Text("${r.reports} reports in this period")
                     r.forecastShare?.let { Text("Forecast agreed with you: ${r.forecastRight} of ${r.forecastJudged} (${(it * 100).roundToInt()}%)") }
                     r.radarShare?.let { Text("Radar agreed with you: ${r.radarRight} of ${r.radarJudged} (${(it * 100).roundToInt()}%)") }
+                    r.levelShare?.let {
+                        Text("Forecast amount in your band: ${r.levelRight} of ${r.levelJudged} (${(it * 100).roundToInt()}%)")
+                        Text("Too heavy ${r.forecastHeavier} · too light ${r.forecastLighter}", style = MaterialTheme.typography.bodySmall)
+                        ReportMatrix(r.matrix)
+                    }
                     Text("Today trusts your report for 45 minutes, then radar over the forecast for \"raining now\".",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -368,6 +373,32 @@ fun ForecastCheckScreen(
             }
         }
         }
+    }
+}
+
+/** Rows: what you reported. Columns: what the 15-minute forecast amount said for that moment. */
+@Composable
+private fun ReportMatrix(matrix: Map<app.weathertrack.core.accuracy.RainLevel, Map<app.weathertrack.core.accuracy.RainLevel, Int>>) {
+    val levels = app.weathertrack.core.accuracy.RainLevel.entries
+    val small = MaterialTheme.typography.bodySmall
+    Column(Modifier.padding(top = 4.dp)) {
+        Row {
+            Text("You ↓ forecast →", Modifier.weight(1.4f), style = small, fontWeight = FontWeight.SemiBold)
+            levels.forEach { Text(it.label, Modifier.weight(1f), style = small, fontWeight = FontWeight.SemiBold) }
+        }
+        levels.forEach { seen ->
+            val row = matrix[seen] ?: return@forEach
+            Row {
+                Text(seen.label, Modifier.weight(1.4f), style = small)
+                levels.forEach { said ->
+                    val n = row[said] ?: 0
+                    Text(if (n == 0) "·" else "$n", Modifier.weight(1f), style = small,
+                        fontWeight = if (said == seen && n > 0) FontWeight.Bold else FontWeight.Normal)
+                }
+            }
+        }
+        Text("Bands: Spitting under 0.5 mm/h, Rain 0.5 to 4, Heavy over 4. Reports from before these levels count for wet or dry only.",
+            style = small, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

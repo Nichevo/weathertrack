@@ -52,7 +52,7 @@ data class ForecastCheckState(
     /** The current 7-day forecast with likely ranges from past errors. */
     val tempFan: List<app.weathertrack.core.accuracy.FanPoint> = emptyList(),
     val rainFan: List<app.weathertrack.core.accuracy.FanPoint> = emptyList(),
-    /** How the forecast and radar matched the user's own raining / dry reports in the period. */
+    /** How the forecast and radar matched the user's own Dry / Spitting / Rain / Heavy reports in the period. */
     val reports: app.weathertrack.core.accuracy.ReportScore? = null,
     /** Did the 8-in-10 ranges (built from older days) hold over the last 30 days? */
     val coverage: List<app.weathertrack.core.accuracy.Coverage> = emptyList(),

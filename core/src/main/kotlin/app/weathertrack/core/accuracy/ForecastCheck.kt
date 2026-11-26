@@ -356,7 +356,40 @@ object ForecastCheck {
     }
 }
 
-/** A "raining or dry" report the user made, with what the forecast and radar said at that moment. */
+/**
+ * How hard it was raining, as the user saw it. Each wet level covers a rain-rate band in mm per hour:
+ * Spitting under 0.5, Rain 0.5 to 4, Heavy over 4 (the usual slight / moderate / heavy split).
+ */
+enum class RainLevel(val key: String, val label: String, val minRate: Double, val maxRate: Double) {
+    DRY("dry", "Dry", 0.0, 0.0),
+    SPITTING("spitting", "Spitting", 0.0, 0.5),
+    RAIN("rain", "Rain", 0.5, 4.0),
+    HEAVY("heavy", "Heavy", 4.0, Double.POSITIVE_INFINITY);
+
+    val wet: Boolean get() = this != DRY
+
+    companion object {
+        fun of(key: String?): RainLevel? = entries.firstOrNull { it.key == key }
+
+        /**
+         * The level a forecast of [mm15] mm in 15 minutes stands for. Under [Feedback.WET_MM] is dry,
+         * matching the yes/no check; 0.1 mm in 15 minutes (the smallest step the forecast gives) is spitting.
+         */
+        fun fromQuarterHourMm(mm15: Double): RainLevel = fromRate(mm15 * 4, dry = mm15 < Feedback.WET_MM)
+
+        /** The level for an hourly total of [mmH] mm. */
+        fun fromHourMm(mmH: Double): RainLevel = fromRate(mmH, dry = mmH < Feedback.WET_MM)
+
+        private fun fromRate(rate: Double, dry: Boolean): RainLevel = when {
+            dry -> DRY
+            rate < SPITTING.maxRate -> SPITTING
+            rate < RAIN.maxRate -> RAIN
+            else -> HEAVY
+        }
+    }
+}
+
+/** A rain report the user made, with what the forecast and radar said at that moment. */
 data class RainReport(
     val time: Long,
     val raining: Boolean,
@@ -364,11 +397,36 @@ data class RainReport(
     val forecastMm: Double?,
     /** Share of radar pixels over the spot showing rain (0..1); null if no radar. */
     val radarHere: Double?,
-)
+    /**
+     * How hard it was raining. Null for reports made before the levels existed: a dry one is still
+     * [RainLevel.DRY] by [effectiveLevel], a wet one has no known intensity.
+     */
+    val level: RainLevel? = null,
+) {
+    /** The level when it is known: always for dry reports, only for newer wet ones. */
+    val effectiveLevel: RainLevel? get() = level ?: if (!raining) RainLevel.DRY else null
 
-data class ReportScore(val reports: Int, val forecastRight: Int, val forecastJudged: Int, val radarRight: Int, val radarJudged: Int) {
+    companion object {
+        fun of(time: Long, level: RainLevel, forecastMm: Double?, radarHere: Double?) =
+            RainReport(time, level.wet, forecastMm, radarHere, level)
+    }
+}
+
+data class ReportScore(
+    val reports: Int, val forecastRight: Int, val forecastJudged: Int, val radarRight: Int, val radarJudged: Int,
+    /** Reports with a known level (all dry ones, and wet ones from Dry/Spitting/Rain/Heavy) and a forecast amount. */
+    val levelJudged: Int = 0,
+    /** Of those, how often the forecast amount fell in the same band as the user's report. */
+    val levelRight: Int = 0,
+    /** Forecast heavier than the user saw (e.g. Rain forecast, Spitting reported), and lighter. */
+    val forecastHeavier: Int = 0,
+    val forecastLighter: Int = 0,
+    /** Reported level to forecast level to count, for the table on Forecast check. */
+    val matrix: Map<RainLevel, Map<RainLevel, Int>> = emptyMap(),
+) {
     val forecastShare: Double? get() = if (forecastJudged == 0) null else forecastRight.toDouble() / forecastJudged
     val radarShare: Double? get() = if (radarJudged == 0) null else radarRight.toDouble() / radarJudged
+    val levelShare: Double? get() = if (levelJudged == 0) null else levelRight.toDouble() / levelJudged
 }
 
 /** How far to trust today's numbers, from this place's record. */
@@ -391,11 +449,23 @@ object Feedback {
 
     fun score(reports: List<RainReport>): ReportScore {
         var fr = 0; var fj = 0; var rr = 0; var rj = 0
+        var lj = 0; var lr = 0; var heavier = 0; var lighter = 0
+        val matrix = mutableMapOf<RainLevel, MutableMap<RainLevel, Int>>()
         for (r in reports) {
             r.forecastMm?.let { fj++; if ((it >= WET_MM) == r.raining) fr++ }
             r.radarHere?.let { rj++; if ((it >= RADAR_WET) == r.raining) rr++ }
+            val seen = r.effectiveLevel ?: continue
+            val said = r.forecastMm?.let { RainLevel.fromQuarterHourMm(it) } ?: continue
+            lj++
+            when {
+                said == seen -> lr++
+                said.ordinal > seen.ordinal -> heavier++
+                else -> lighter++
+            }
+            val row = matrix.getOrPut(seen) { mutableMapOf() }
+            row[said] = (row[said] ?: 0) + 1
         }
-        return ReportScore(reports.size, fr, fj, rr, rj)
+        return ReportScore(reports.size, fr, fj, rr, rj, lj, lr, heavier, lighter, matrix)
     }
 
     /** The newest report if it is recent enough to describe right now. */

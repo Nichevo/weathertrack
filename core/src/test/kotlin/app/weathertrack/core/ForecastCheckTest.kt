@@ -1,5 +1,6 @@
 package app.weathertrack.core
 
+import app.weathertrack.core.accuracy.RainLevel
 import app.weathertrack.core.accuracy.Confidence
 import app.weathertrack.core.accuracy.ForecastCheck
 import app.weathertrack.core.accuracy.IssuedHour
@@ -113,6 +114,35 @@ class FeedbackTest {
         org.junit.Assert.assertEquals(3, s.reports)
         org.junit.Assert.assertEquals(1, s.forecastRight); org.junit.Assert.assertEquals(3, s.forecastJudged)
         org.junit.Assert.assertEquals(2, s.radarRight); org.junit.Assert.assertEquals(2, s.radarJudged)
+    }
+
+    @org.junit.Test fun levelsFromForecastAmount() {
+        org.junit.Assert.assertEquals(RainLevel.DRY, RainLevel.fromQuarterHourMm(0.0))
+        org.junit.Assert.assertEquals(RainLevel.SPITTING, RainLevel.fromQuarterHourMm(0.1)) // 0.4 mm/h
+        org.junit.Assert.assertEquals(RainLevel.RAIN, RainLevel.fromQuarterHourMm(0.2)) // 0.8 mm/h
+        org.junit.Assert.assertEquals(RainLevel.HEAVY, RainLevel.fromQuarterHourMm(1.0)) // 4 mm/h
+        org.junit.Assert.assertEquals(RainLevel.SPITTING, RainLevel.fromHourMm(0.3))
+        org.junit.Assert.assertEquals(RainLevel.RAIN, RainLevel.fromHourMm(2.0))
+        org.junit.Assert.assertEquals(RainLevel.HEAVY, RainLevel.fromHourMm(6.0))
+        org.junit.Assert.assertEquals(RainLevel.RAIN, RainLevel.of("rain")); org.junit.Assert.assertNull(RainLevel.of(null))
+    }
+
+    @org.junit.Test fun scoresIntensityWhenKnown() {
+        val R = app.weathertrack.core.accuracy.RainReport
+        val s = F.score(listOf(
+            R.of(1, RainLevel.SPITTING, 0.5, null), // forecast heavier (2 mm/h = Rain)
+            R.of(2, RainLevel.HEAVY, 0.2, null), // forecast lighter
+            R.of(3, RainLevel.RAIN, 0.3, null), // right
+            r(4, false, 0.0, null), // old dry report: level known, right
+            r(5, true, 0.3, null), // old wet report: no level
+        ))
+        org.junit.Assert.assertEquals(4, s.levelJudged)
+        org.junit.Assert.assertEquals(2, s.levelRight)
+        org.junit.Assert.assertEquals(1, s.forecastHeavier)
+        org.junit.Assert.assertEquals(1, s.forecastLighter)
+        org.junit.Assert.assertEquals(1, s.matrix.getValue(RainLevel.SPITTING).getValue(RainLevel.RAIN))
+        org.junit.Assert.assertEquals(5, s.forecastJudged) // wet / dry still counts every report
+        org.junit.Assert.assertTrue(R.of(9, RainLevel.SPITTING, null, null).raining)
     }
 
     @org.junit.Test fun onlyFreshReportCountsAsNow() {

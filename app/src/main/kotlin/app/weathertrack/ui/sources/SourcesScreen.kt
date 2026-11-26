@@ -480,9 +480,10 @@ private fun BlendSection(v: SourceView, win: Windows, measure: Measure, now: Lon
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Text(
             "The blend is a weighted average of every source. Weights come from how each has done here, checked against what " +
-                "happened at your spot and your Raining/Dry reports, and are worked out separately for rain, temperature, wind and cloud, " +
+                "happened at your spot and your Dry/Spitting/Rain/Heavy reports, and are worked out separately for rain, temperature, wind and cloud, " +
                 "and for each window of how far ahead. Temperature, wind and cloud weights settle after a couple of days; rain weights stay " +
-                "near equal until about a dozen wet hours or reports, and judge wet and dry hours equally.",
+                "near equal until about a dozen wet hours or reports, and judge wet and dry hours equally. When you report rain and a " +
+                "source forecast rain too, it loses a little for each step its amount was off (Spitting, Rain, Heavy).",
             Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall,
         )
     }
@@ -596,12 +597,21 @@ private fun DetailSection(
             HeatCell(fmt(m, measure), m?.let { goodness(it, measure) }, Modifier.weight(1.1f), thin = hoursOf(sc, measure) < THIN_HOURS)
             Text(if (measure == Measure.RAIN) "${sc?.wetHours ?: 0}" else "${hoursOf(sc, measure)}", Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
-            if (measure == Measure.RAIN) Text(sc?.takeIf { it.reportsTotal > 0 }?.let { "${it.reportsRight}/${it.reportsTotal}" } ?: "–",
-                Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+            if (measure == Measure.RAIN) Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(sc?.takeIf { it.reportsTotal > 0 }?.let { "${it.reportsRight}/${it.reportsTotal}" } ?: "–",
+                    style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                // How often the amount matched the level you reported (Dry/Spitting/Rain/Heavy).
+                sc?.takeIf { it.levelTotal > 0 }?.let {
+                    Text("amt ${it.levelRight}/${it.levelTotal}", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                }
+            }
         }
     }
     HeatLegend()
     val hours = scores.values.maxOfOrNull { hoursOf(it, measure) } ?: 0
+    if (measure == Measure.RAIN && scores.values.any { it.levelTotal > 0 })
+        Note("Your reports: wet or dry right / checked. \"amt\" is how often the source's amount for that hour was in the same band as your Dry, Spitting, Rain or Heavy.")
     Note("Up to $hours hours checked${if (lead == null) " over the last 60 days" else " in this window"}. " +
         if (lead == null) "Overall weights cover forecasts made 1 to 30 hours ahead; a window leans on them until it has its own record." else "")
 
