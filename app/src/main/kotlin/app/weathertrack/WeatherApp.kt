@@ -19,6 +19,7 @@ import app.weathertrack.widget.DetailWidget
 import app.weathertrack.widget.RainWidgetFrames
 import app.weathertrack.widget.RainWidgetWorker
 import app.weathertrack.map.RainMapRepository
+import app.weathertrack.map.TimeZoneMap
 import app.weathertrack.map.RadarSpotChecker
 import app.weathertrack.map.TileStore
 import app.weathertrack.data.PlaceRepository
@@ -61,6 +62,7 @@ class AppContainer(app: Application) {
     val backup = DropboxBackup(app, exporter)
     val tiles = TileStore(app)
     val rainMap = RainMapRepository(http, database.rawPullDao())
+    val timeZones = TimeZoneMap(app)
     val extras = ExtrasRepository(http, database.rawPullDao())
     val sources = SourceRepository(http, database.rawPullDao(), database.sourceHourDao(), database.sourceDayDao())
     val radarSpot = RadarSpotChecker(rainMap, tiles)
